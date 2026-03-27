@@ -3,14 +3,35 @@
   "minVersion": "0.8",
   "package": "com.xinian.KryptonHybrid.mixin",
   "compatibilityLevel": "JAVA_21",
+  "refmap": "krypton_hybrid.refmap.json",
   "mixins": [
+    "fastchunkentityaccess.EntitySectionAccessor",
+    "fastchunkentityaccess.EntitySectionStorageMixin",
+    "fastchunkentityaccess.PersistentEntitySectionManagerAccessor",
+    "fastchunkentityaccess.ServerLevelMixin",
+    "network.avoidwork.ChunkMapAvoidWorkMixin",
+    "network.avoidwork.ChunkMapTrackedEntityInvoker",
+    "network.chunk.ChunkLightCompressMixin",
+    "network.chunk.ChunkMapDccMixin",
+    "network.chunk.ClientboundLevelChunkWithLightPacketMixin",
+    "network.chunk.ClientboundLightUpdatePacketMixin",
+    "network.flushconsolidation.ChunkMapFlushMixin",
+    "network.flushconsolidation.ConnectionMixin",
+    "network.flushconsolidation.ServerEntityFlushMixin",
+    "network.microopt.FriendlyByteBufMixin",
+    "network.microopt.ServerEntityMixin",
+    "network.pipeline.LegacyQueryHandlerMixin",
+    "network.pipeline.PacketEncoderMixin",
+    "network.pipeline.Varint21FrameDecoderMixin",
+    "network.pipeline.compression.ConnectionMixin",
+    "network.pipeline.encryption.ConnectionMixin",
+    "network.pipeline.encryption.ServerLoginPacketListenerImplMixin"
   ],
   "client": [
+    "fastchunkentityaccess.ClientLevelMixin",
+    "fastchunkentityaccess.TransientEntitySectionManagerAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
-  },
-  "overwrites": {
-    "requireAnnotations": true
   }
 }
