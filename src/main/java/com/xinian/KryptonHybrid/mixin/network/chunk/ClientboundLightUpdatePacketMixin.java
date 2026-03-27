@@ -7,6 +7,7 @@ import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -34,9 +35,9 @@ import java.util.List;
 @Mixin(ClientboundLightUpdatePacket.class)
 public abstract class ClientboundLightUpdatePacketMixin {
 
-    private static final int  KRYPTON_MARKER = 0x4B; // 'K'
-    private static final byte ENC_RAW        = 0x00;
-    private static final byte ENC_UNIFORM    = 0x01;
+    @Unique private static final int  KRYPTON_MARKER = 0x4B; // 'K'
+    @Unique private static final byte ENC_RAW        = 0x00;
+    @Unique private static final byte ENC_UNIFORM    = 0x01;
 
     @Redirect(
             method = "<init>(Lnet/minecraft/network/FriendlyByteBuf;)V",
@@ -57,8 +58,8 @@ public abstract class ClientboundLightUpdatePacketMixin {
         BitSet blockYMask   = buf.readBitSet();
         BitSet emptySky     = buf.readBitSet();
         BitSet emptyBlock   = buf.readBitSet();
-        List<byte[]> skyUpd = readCompressedList(buf);
-        List<byte[]> blkUpd = readCompressedList(buf);
+        List<byte[]> skyUpd = krypton$readCompressedList(buf);
+        List<byte[]> blkUpd = krypton$readCompressedList(buf);
 
         FriendlyByteBuf vanillaBuf = new FriendlyByteBuf(Unpooled.buffer());
         try {
@@ -74,7 +75,8 @@ public abstract class ClientboundLightUpdatePacketMixin {
         }
     }
 
-    private static List<byte[]> readCompressedList(FriendlyByteBuf buf) {
+    @Unique
+    private static List<byte[]> krypton$readCompressedList(FriendlyByteBuf buf) {
         int count = buf.readVarInt();
         List<byte[]> list = Lists.newArrayListWithCapacity(count);
         for (int i = 0; i < count; i++) {
@@ -84,10 +86,12 @@ public abstract class ClientboundLightUpdatePacketMixin {
                 byte[] arr = new byte[2048];
                 Arrays.fill(arr, v);
                 list.add(arr);
-            } else {
+            } else if (encoding == ENC_RAW) {
                 byte[] arr = new byte[2048];
                 buf.readBytes(arr); // fixed 2048 bytes; matches fixed-size write
                 list.add(arr);
+            } else {
+                throw new IllegalArgumentException("Unknown light data encoding: " + encoding);
             }
         }
         return list;

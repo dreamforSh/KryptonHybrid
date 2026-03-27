@@ -5,6 +5,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.level.entity.PersistentEntitySectionManager;
 import com.xinian.KryptonHybrid.shared.WorldEntityByChunkAccess;
+import org.spongepowered.asm.mixin.Implements;
+import org.spongepowered.asm.mixin.Interface;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
@@ -19,13 +21,13 @@ import java.util.Collection;
  */
 @SuppressWarnings("unchecked")
 @Mixin(ServerLevel.class)
-public abstract class ServerLevelMixin implements WorldEntityByChunkAccess {
+@Implements(@Interface(iface = WorldEntityByChunkAccess.class, prefix = "krypton$"))
+public abstract class ServerLevelMixin {
 
     @Accessor("entityManager")
     public abstract PersistentEntitySectionManager<Entity> getEntityManager();
 
-    @Override
-    public Collection<Entity> getEntitiesInChunk(int chunkX, int chunkZ) {
+    public Collection<Entity> krypton$getEntitiesInChunk(int chunkX, int chunkZ) {
         EntitySectionStorage<Entity> storage =
                 ((PersistentEntitySectionManagerAccessor<Entity>) this.getEntityManager()).getSectionStorage();
         return ((WorldEntityByChunkAccess) storage).getEntitiesInChunk(chunkX, chunkZ);

@@ -6,23 +6,24 @@
         "artifact": "zstd-jni"
       },
       "version": {
-        "range": "[1.5.6-6,)",
+        "range": "[1.5.7-7,)",
         "artifactVersion": "1.5.7-7"
       },
       "path": "META-INF/jarjar/zstd-jni-1.5.7-7.jar",
       "isObfuscated": false
     },
-    {
-      "identifier": {
-        "group": "one.pkg.velocity_rc",
-        "artifact": "velocity-native"
-      },
-      "version": {
-        "range": "[3.4.0-SNAPSHOT,)",
-        "artifactVersion": "3.4.0-SNAPSHOT"
-      },
-      "path": "META-INF/jarjar/velocity-native-3.4.0-SNAPSHOT.jar",
-      "isObfuscated": false
-    }
-  ]
+
+        {
+          "identifier": {
+            "group": "one.pkg.velocity_rc",
+            "artifact": "velocity-native"
+          },
+          "version": {
+            "range": "[3.4.0-SNAPSHOT,)",
+            "artifactVersion": "3.4.0-SNAPSHOT"
+          },
+          "path": "META-INF/jarjar/velocity-native-3.4.0-SNAPSHOT.jar",
+          "isObfuscated": false
+        }
+    ]
 }

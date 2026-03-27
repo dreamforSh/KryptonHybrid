@@ -10,6 +10,8 @@ import net.minecraft.world.level.entity.EntityAccess;
 import net.minecraft.world.level.entity.EntitySection;
 import net.minecraft.world.level.entity.EntitySectionStorage;
 import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Implements;
+import org.spongepowered.asm.mixin.Interface;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
@@ -23,14 +25,14 @@ import java.util.List;
  */
 @SuppressWarnings("unchecked")
 @Mixin(EntitySectionStorage.class)
-public abstract class EntitySectionStorageMixin<T extends EntityAccess> implements WorldEntityByChunkAccess {
+@Implements(@Interface(iface = WorldEntityByChunkAccess.class, prefix = "krypton$"))
+public abstract class EntitySectionStorageMixin<T extends EntityAccess> {
 
     @Shadow @Final private Long2ObjectMap<EntitySection<T>> sections;
 
     @Shadow protected abstract LongSortedSet getChunkSections(int pX, int pZ);
 
-    @Override
-    public Collection<Entity> getEntitiesInChunk(final int chunkX, final int chunkZ) {
+    public Collection<Entity> krypton$getEntitiesInChunk(final int chunkX, final int chunkZ) {
         final LongSortedSet sectionKeys = this.getChunkSections(chunkX, chunkZ);
         if (sectionKeys.isEmpty()) {
             return List.of();

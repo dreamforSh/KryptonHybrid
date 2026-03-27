@@ -6,6 +6,7 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -66,11 +67,11 @@ import java.util.List;
 public abstract class ChunkLightCompressMixin {
 
     /** Magic marker byte that identifies the Krypton light-data encoding. */
-    private static final int KRYPTON_MARKER = 0x4B; // 'K'
+    @Unique private static final int KRYPTON_MARKER = 0x4B; // 'K'
     /** Encoding flag: raw 2048-byte DataLayer follows. */
-    private static final byte ENC_RAW     = 0x00;
+    @Unique private static final byte ENC_RAW     = 0x00;
     /** Encoding flag: uniform DataLayer; a single byte (the repeated value) follows. */
-    private static final byte ENC_UNIFORM = 0x01;
+    @Unique private static final byte ENC_UNIFORM = 0x01;
 
 
     @Shadow @Final private BitSet skyYMask;
@@ -95,7 +96,7 @@ public abstract class ChunkLightCompressMixin {
     private void write$krypton(FriendlyByteBuf buf, CallbackInfo ci) {
         if (!KryptonConfig.lightOptEnabled) return;
 
-        int uniformCount = countUniform(this.skyUpdates) + countUniform(this.blockUpdates);
+        int uniformCount = krypton$countUniform(this.skyUpdates) + krypton$countUniform(this.blockUpdates);
         int totalCount   = this.skyUpdates.size() + this.blockUpdates.size();
         int rawCount     = totalCount - uniformCount;
 
@@ -106,14 +107,15 @@ public abstract class ChunkLightCompressMixin {
         buf.writeBitSet(this.blockYMask);
         buf.writeBitSet(this.emptySkyYMask);
         buf.writeBitSet(this.emptyBlockYMask);
-        writeCompressedList(buf, this.skyUpdates);
-        writeCompressedList(buf, this.blockUpdates);
+        krypton$writeCompressedList(buf, this.skyUpdates);
+        krypton$writeCompressedList(buf, this.blockUpdates);
         ci.cancel();
     }
 
-    private static int countUniform(List<byte[]> arrays) {
+    @Unique
+    private static int krypton$countUniform(List<byte[]> arrays) {
         int count = 0;
-        for (byte[] arr : arrays) if (isUniform(arr)) count++;
+        for (byte[] arr : arrays) if (krypton$isUniform(arr)) count++;
         return count;
     }
 
@@ -124,10 +126,11 @@ public abstract class ChunkLightCompressMixin {
      * (DataLayer size is always fixed), saving 2 bytes per raw array compared to
      * {@code FriendlyByteBuf.writeByteArray()} which prepends a VarInt length.</p>
      */
-    private static void writeCompressedList(FriendlyByteBuf buf, List<byte[]> arrays) {
+    @Unique
+    private static void krypton$writeCompressedList(FriendlyByteBuf buf, List<byte[]> arrays) {
         buf.writeVarInt(arrays.size());
         for (byte[] arr : arrays) {
-            if (isUniform(arr)) {
+            if (krypton$isUniform(arr)) {
                 buf.writeByte(ENC_UNIFORM);
                 buf.writeByte(arr[0]);
             } else {
@@ -141,7 +144,8 @@ public abstract class ChunkLightCompressMixin {
      * Returns {@code true} if every byte in {@code arr} is equal to {@code arr[0]}.
      * Early-exits on the first mismatch.
      */
-    private static boolean isUniform(byte[] arr) {
+    @Unique
+    private static boolean krypton$isUniform(byte[] arr) {
         byte first = arr[0];
         for (int i = 1; i < arr.length; i++) {
             if (arr[i] != first) return false;

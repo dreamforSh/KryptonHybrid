@@ -7,6 +7,7 @@ import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
@@ -18,7 +19,7 @@ import java.util.List;
  * Read-side companion to {@link ChunkLightCompressMixin} for Forge 1.20.1.
  *
  * <p>Intercepts the {@code new ClientboundLightUpdatePacketData(buf, x, z)} constructor
- * call inside {@link ClientboundLevelChunkWithLightPacket#ClientboundLevelChunkWithLightPacket(FriendlyByteBuf)}
+ * call inside the {@link ClientboundLevelChunkWithLightPacket} buffer-reading constructor
  * via {@code @Redirect}. If the buffer begins with the Krypton marker ({@code 0x4B}),
  * the compressed light data is decoded into a temporary vanilla-format buffer, which is
  * then handed to the original vanilla constructor. If the marker is absent (vanilla server
@@ -32,9 +33,9 @@ import java.util.List;
 @Mixin(ClientboundLevelChunkWithLightPacket.class)
 public abstract class ClientboundLevelChunkWithLightPacketMixin {
 
-    private static final int  KRYPTON_MARKER = 0x4B; // 'K'
-    private static final byte ENC_RAW        = 0x00;
-    private static final byte ENC_UNIFORM    = 0x01;
+    @Unique private static final int  KRYPTON_MARKER = 0x4B; // 'K'
+    @Unique private static final byte ENC_RAW        = 0x00;
+    @Unique private static final byte ENC_UNIFORM    = 0x01;
 
     /**
      * Intercepts the {@code new ClientboundLightUpdatePacketData(buf, x, z)} call.
@@ -42,7 +43,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
      * back to the vanilla constructor unmodified.
      */
     @Redirect(
-            method = "<init>(Lnet/minecraft/network/FriendlyByteBuf;)V",
+            method = "<init>(Lnet/minecraft/network/RegistryFriendlyByteBuf;)V",
             at = @At(
                     value = "NEW",
                     target = "net/minecraft/network/protocol/game/ClientboundLightUpdatePacketData"
@@ -60,8 +61,8 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         BitSet blockYMask    = buf.readBitSet();
         BitSet emptySky      = buf.readBitSet();
         BitSet emptyBlock    = buf.readBitSet();
-        List<byte[]> skyUpd  = readCompressedList(buf);
-        List<byte[]> blkUpd  = readCompressedList(buf);
+        List<byte[]> skyUpd  = krypton$readCompressedList(buf);
+        List<byte[]> blkUpd  = krypton$readCompressedList(buf);
 
 
         FriendlyByteBuf vanillaBuf = new FriendlyByteBuf(Unpooled.buffer());
@@ -79,7 +80,8 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
     }
 
 
-    private static List<byte[]> readCompressedList(FriendlyByteBuf buf) {
+    @Unique
+    private static List<byte[]> krypton$readCompressedList(FriendlyByteBuf buf) {
         int count = buf.readVarInt();
         List<byte[]> list = Lists.newArrayListWithCapacity(count);
         for (int i = 0; i < count; i++) {
@@ -89,10 +91,12 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
                 byte[] arr = new byte[2048];
                 Arrays.fill(arr, v);
                 list.add(arr);
-            } else {
+            } else if (encoding == ENC_RAW) {
                 byte[] arr = new byte[2048];
                 buf.readBytes(arr); // fixed 2048 bytes; matches fixed-size write
                 list.add(arr);
+            } else {
+                throw new IllegalArgumentException("Unknown light data encoding: " + encoding);
             }
         }
         return list;
