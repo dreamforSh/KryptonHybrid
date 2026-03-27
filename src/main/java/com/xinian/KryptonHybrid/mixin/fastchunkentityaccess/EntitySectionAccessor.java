@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
- * Accessor for {@link EntitySection#storage} to allow reading entity collections directly.
+ * Accessor for the entity collection storage inside {@link EntitySection}.
  */
 @Mixin(EntitySection.class)
 public interface EntitySectionAccessor<T> {

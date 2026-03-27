@@ -7,7 +7,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
- * Accessor for {@link TransientEntitySectionManager#sectionStorage}.
+ * Accessor for the backing section storage in {@link TransientEntitySectionManager}.
  */
 @Mixin(TransientEntitySectionManager.class)
 public interface TransientEntitySectionManagerAccessor<T extends EntityAccess> {
