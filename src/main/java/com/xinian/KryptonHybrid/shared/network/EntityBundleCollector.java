@@ -198,6 +198,9 @@ public final class EntityBundleCollector {
             ServerPlayerConnection conn = entry.getKey();
             List<Packet<?>> packets = entry.getValue();
 
+            // P1-③ Packet coalescing: deduplicate redundant packets before sending
+            PacketCoalescer.coalesce(packets);
+
             if (packets.isEmpty()) {
                 continue;
             }

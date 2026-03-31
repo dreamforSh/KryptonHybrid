@@ -206,6 +206,43 @@ public final class KryptonConfig {
     /** Seconds before a cached chunk is forcibly evicted and untracked. Default: 30. */
     public static volatile int dccTimeoutSeconds = 30;
 
+    // --- P0-⑧ Broadcast Serialization Cache ---
+
+    /**
+     * Whether to enable the broadcast serialization cache.  When enabled, the
+     * {@link net.minecraft.network.PacketEncoder} caches the serialized bytes of
+     * a Packet instance on each Netty I/O thread.  Subsequent encodes of the same
+     * Packet object (common in broadcast scenarios where one packet is sent to N
+     * players) reuse the cached bytes, skipping all serialization work.
+     * Default: {@code true}.
+     */
+    public static volatile boolean broadcastCacheEnabled = true;
+
+    // --- P1-③ Packet Coalescing ---
+
+    /**
+     * Whether to deduplicate redundant packets within the entity-tracking bundle
+     * before sending.  When enabled, the coalescer removes superseded packets:
+     * <ul>
+     *   <li>Multiple velocity updates for the same entity → keep last only</li>
+     *   <li>Multiple teleports for the same entity → keep last only</li>
+     *   <li>Teleport supersedes relative move packets for the same entity</li>
+     *   <li>Multiple entity data updates for the same entity → keep last only</li>
+     * </ul>
+     * Default: {@code true}.
+     */
+    public static volatile boolean packetCoalescingEnabled = true;
+
+    // --- P1-① Block Entity NBT Delta Sync ---
+
+    /**
+     * Whether to enable per-player NBT delta encoding for block entity data packets.
+     * When enabled, only the changed NBT keys are sent instead of the full tag.
+     * Requires Krypton Hybrid on <strong>both</strong> server and client.
+     * Default: {@code true}.
+     */
+    public static volatile boolean blockEntityDeltaEnabled = true;
+
     private KryptonConfig() {}
 }
 

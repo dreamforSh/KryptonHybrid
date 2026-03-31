@@ -11,17 +11,22 @@
     "fastchunkentityaccess.ServerLevelMixin",
     "network.avoidwork.ChunkMapAvoidWorkMixin",
     "network.avoidwork.ChunkMapTrackedEntityInvoker",
+    "network.blockentity.ChunkHolderBlockEntityMixin",
+    "network.blockentity.ServerGamePacketListenerDeltaMixin",
     "network.chunk.ChunkDataOptMixin",
     "network.chunk.ChunkLightCompressMixin",
     "network.chunk.ChunkMapDccMixin",
-    "network.chunk.PlayerChunkSenderMixin",
     "network.chunk.ClientboundLevelChunkWithLightPacketMixin",
     "network.chunk.ClientboundLightUpdatePacketMixin",
+    "network.chunk.PlayerChunkSenderMixin",
+    "network.flushconsolidation.ChunkHolderBroadcastMixin",
     "network.flushconsolidation.ChunkMapFlushMixin",
     "network.flushconsolidation.ConnectionMixin",
+    "network.flushconsolidation.ServerChunkCacheBroadcastMixin",
     "network.flushconsolidation.ServerEntityFlushMixin",
     "network.flushconsolidation.TrackedEntityBundleMixin",
     "network.microopt.FriendlyByteBufMixin",
+    "network.microopt.MoveEntityPacketAccessor",
     "network.microopt.ServerEntityDataThrottleMixin",
     "network.microopt.ServerEntityMixin",
     "network.microopt.VarIntMixin",
@@ -35,7 +40,8 @@
   ],
   "client": [
     "fastchunkentityaccess.ClientLevelMixin",
-    "fastchunkentityaccess.TransientEntitySectionManagerAccessor"
+    "fastchunkentityaccess.TransientEntitySectionManagerAccessor",
+    "network.blockentity.ClientBlockEntityDeltaMixin"
   ],
   "injectors": {
     "defaultRequire": 1

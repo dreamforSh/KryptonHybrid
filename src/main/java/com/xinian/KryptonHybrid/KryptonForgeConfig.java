@@ -49,6 +49,9 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.IntValue                        dccSizeLimit;
     private final ModConfigSpec.IntValue                        dccDistance;
     private final ModConfigSpec.IntValue                        dccTimeoutSeconds;
+    private final ModConfigSpec.BooleanValue                    broadcastCacheEnabled;
+    private final ModConfigSpec.BooleanValue                    packetCoalescingEnabled;
+    private final ModConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
 
     private KryptonForgeConfig(ModConfigSpec.Builder builder) {
         builder.comment(
@@ -266,6 +269,57 @@ public final class KryptonForgeConfig {
                 .defineInRange("timeout_seconds", 30, 5, 300);
 
         builder.pop();
+
+        builder.comment(
+                "Broadcast Serialization Cache",
+                "Caches serialized packet bytes when the same Packet object is",
+                "broadcast to multiple players, avoiding redundant serialization."
+        ).push("broadcast_cache");
+
+        broadcastCacheEnabled = builder
+                .comment(
+                        "Enable the broadcast serialization cache.",
+                        "Saves CPU by avoiding re-serialization of the same packet",
+                        "when broadcast to multiple players on the same Netty I/O thread.",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        builder.pop();
+
+        builder.comment(
+                "Packet Coalescing",
+                "Deduplicates redundant entity update packets within each tick's",
+                "bundle before sending.  Removes superseded velocity, teleport,",
+                "and entity data packets for the same entity."
+        ).push("packet_coalescing");
+
+        packetCoalescingEnabled = builder
+                .comment(
+                        "Enable packet coalescing within entity tracking bundles.",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        builder.pop();
+
+        builder.comment(
+                "Block Entity NBT Delta Sync",
+                "Reduces block entity data packet size by sending only changed NBT",
+                "keys instead of the full tag.  Requires Krypton Hybrid on BOTH",
+                "the server and every connecting client."
+        ).push("block_entity_delta");
+
+        blockEntityDeltaEnabled = builder
+                .comment(
+                        "Enable per-player NBT delta encoding for block entity updates.",
+                        "Significantly reduces bandwidth for frequently-updating block",
+                        "entities (furnaces, hoppers, redstone components).",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        builder.pop();
     }
 
     /**
@@ -291,6 +345,9 @@ public final class KryptonForgeConfig {
         KryptonConfig.dccSizeLimit         = dccSizeLimit.get();
         KryptonConfig.dccDistance          = dccDistance.get();
         KryptonConfig.dccTimeoutSeconds    = dccTimeoutSeconds.get();
+        KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
+        KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();
+        KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
     }
 }
 
