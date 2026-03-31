@@ -2,6 +2,7 @@ package com.xinian.KryptonHybrid.shared.network.compression;
 
 import com.github.luben.zstd.ZstdDecompressCtx;
 import com.github.luben.zstd.ZstdException;
+import com.xinian.KryptonHybrid.shared.network.security.DecompressionBombGuard;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -128,6 +129,9 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         }
 
         int compressedSize = in.readableBytes();
+
+        // --- Decompression bomb guard ---
+        DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize);
 
         // --- Fast path: direct input → direct output, zero-copy ---
         if (in.isDirect() && in.nioBufferCount() == 1) {

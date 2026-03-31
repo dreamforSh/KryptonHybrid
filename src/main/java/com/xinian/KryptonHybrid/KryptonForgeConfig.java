@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.ProxyMode;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -52,6 +53,8 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.BooleanValue                    broadcastCacheEnabled;
     private final ModConfigSpec.BooleanValue                    packetCoalescingEnabled;
     private final ModConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
+    private final ModConfigSpec.EnumValue<ProxyMode>            proxyMode;
+    private final ModConfigSpec.ConfigValue<String>             velocityForwardingSecret;
 
     private KryptonForgeConfig(ModConfigSpec.Builder builder) {
         builder.comment(
@@ -320,6 +323,39 @@ public final class KryptonForgeConfig {
                 .define("enabled", true);
 
         builder.pop();
+
+        builder.comment(
+                "Proxy Compatibility",
+                "Controls how Krypton Hybrid interacts with reverse proxies",
+                "(e.g. Velocity). When behind a proxy, certain optimizations must",
+                "be disabled or gated to preserve proxy compatibility."
+        ).push("proxy");
+
+        proxyMode = builder
+                .comment(
+                        "Proxy detection mode.",
+                        "  NONE     - No proxy; all optimizations active (direct connection).",
+                        "  AUTO     - Auto-detect Velocity via login plugin channel.",
+                        "             When detected, forces ZLIB on backend and gates custom",
+                        "             wire formats behind capability negotiation.",
+                        "  VELOCITY - Assume Velocity proxy; always use ZLIB backend",
+                        "             compression and gate custom wire formats.",
+                        "Default: NONE"
+                )
+                .defineEnum("mode", ProxyMode.NONE);
+
+        velocityForwardingSecret = builder
+                .comment(
+                        "Shared secret for Velocity Modern Forwarding.",
+                        "Must match the forwarding-secret in Velocity's velocity.toml.",
+                        "When non-empty and mode is AUTO or VELOCITY, the server will",
+                        "verify connecting players via HMAC-SHA256 signed forwarding data.",
+                        "Leave empty to disable modern forwarding (heuristic detection only).",
+                        "Default: (empty)"
+                )
+                .define("forwarding_secret", "");
+
+        builder.pop();
     }
 
     /**
@@ -348,6 +384,8 @@ public final class KryptonForgeConfig {
         KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
         KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
+        KryptonConfig.proxyMode                = proxyMode.get();
+        KryptonConfig.velocityForwardingSecret = velocityForwardingSecret.get();
     }
 }
 
