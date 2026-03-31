@@ -56,6 +56,29 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.EnumValue<ProxyMode>            proxyMode;
     private final ModConfigSpec.ConfigValue<String>             velocityForwardingSecret;
 
+    // --- Security ---
+    private final ModConfigSpec.BooleanValue                    securityEnabled;
+    private final ModConfigSpec.IntValue                        securityConnectionRateLimit;
+    private final ModConfigSpec.IntValue                        securityConnectionBurstLimit;
+    private final ModConfigSpec.BooleanValue                    securityPacketRateLimitEnabled;
+    private final ModConfigSpec.IntValue                        securityPacketsPerSecond;
+    private final ModConfigSpec.IntValue                        securityPacketBurstLimit;
+    private final ModConfigSpec.IntValue                        securityMaxDecompressedBytes;
+    private final ModConfigSpec.IntValue                        securityMaxCompressionRatio;
+    private final ModConfigSpec.IntValue                        securityHandshakeTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityLoginTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityPlayTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityMaxPacketBytes;
+    private final ModConfigSpec.IntValue                        securityMinProtocolVersion;
+    private final ModConfigSpec.IntValue                        securityMaxProtocolVersion;
+    private final ModConfigSpec.IntValue                        securityMaxHandshakeAddressLength;
+    private final ModConfigSpec.IntValue                        securityAnomalyStrikeThreshold;
+    private final ModConfigSpec.IntValue                        securityWriteWatermarkLow;
+    private final ModConfigSpec.IntValue                        securityWriteWatermarkHigh;
+    private final ModConfigSpec.IntValue                        securityMaxPendingWrites;
+    private final ModConfigSpec.IntValue                        securityMaxUnwritableSeconds;
+    private final ModConfigSpec.IntValue                        securityMetricsIntervalSec;
+
     private KryptonForgeConfig(ModConfigSpec.Builder builder) {
         builder.comment(
                 "Krypton Hybrid - Packet Compression",
@@ -356,6 +379,245 @@ public final class KryptonForgeConfig {
                 .define("forwarding_secret", "");
 
         builder.pop();
+
+        // ═══════════════════════════════════════════════════════════════
+        // §  Network Security & DDoS Protection
+        // ═══════════════════════════════════════════════════════════════
+
+        builder.comment(
+                "Krypton Hybrid - Network Security & DDoS Protection",
+                "Comprehensive protection against connection floods, packet floods,",
+                "decompression bombs, protocol abuse, and resource exhaustion.",
+                "All features are gated behind the global 'enabled' toggle."
+        ).push("security");
+
+        securityEnabled = builder
+                .comment(
+                        "Global kill-switch for all security features.",
+                        "When false, no security handlers are injected into the pipeline.",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        builder.comment(
+                "Connection Rate Limiting",
+                "Limits the number of new TCP connections per IP per second.",
+                "Prevents SYN flood and login flood attacks."
+        ).push("connection_rate_limit");
+
+        securityConnectionRateLimit = builder
+                .comment(
+                        "Maximum new connections per IP per second (sustained rate).",
+                        "Range: 1 - 1000  |  Default: 10"
+                )
+                .defineInRange("rate", 10, 1, 1000);
+
+        securityConnectionBurstLimit = builder
+                .comment(
+                        "Burst limit — peak connections allowed within a 1-second window.",
+                        "Range: 1 - 2000  |  Default: 20"
+                )
+                .defineInRange("burst", 20, 1, 2000);
+
+        builder.pop(); // connection_rate_limit
+
+        builder.comment(
+                "Packet Rate Limiting",
+                "Per-connection token-bucket PPS (packets per second) limiter.",
+                "Prevents high-frequency small-packet floods."
+        ).push("packet_rate_limit");
+
+        securityPacketRateLimitEnabled = builder
+                .comment(
+                        "Enable per-connection packet rate limiting.",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        securityPacketsPerSecond = builder
+                .comment(
+                        "Sustained packets-per-second limit per connection.",
+                        "Range: 50 - 10000  |  Default: 500"
+                )
+                .defineInRange("pps", 500, 50, 10000);
+
+        securityPacketBurstLimit = builder
+                .comment(
+                        "Burst capacity — maximum token accumulation.",
+                        "Allows short traffic spikes (e.g. chunk loading).",
+                        "Range: 50 - 20000  |  Default: 800"
+                )
+                .defineInRange("burst", 800, 50, 20000);
+
+        builder.pop(); // packet_rate_limit
+
+        builder.comment(
+                "Decompression Bomb Protection",
+                "Validates compression ratios before decompression to prevent",
+                "OOM attacks via crafted compressed payloads."
+        ).push("decompression_guard");
+
+        securityMaxDecompressedBytes = builder
+                .comment(
+                        "Maximum allowed decompressed packet size in bytes.",
+                        "Packets claiming a larger size are rejected before decompression.",
+                        "Range: 1048576 (1 MiB) - 134217728 (128 MiB)  |  Default: 16777216 (16 MiB)"
+                )
+                .defineInRange("max_decompressed_bytes", 16 * 1024 * 1024,
+                        1024 * 1024, 128 * 1024 * 1024);
+
+        securityMaxCompressionRatio = builder
+                .comment(
+                        "Maximum allowed compression ratio (uncompressed:compressed).",
+                        "Packets exceeding this ratio are flagged as bombs.",
+                        "Range: 10 - 10000  |  Default: 100"
+                )
+                .defineInRange("max_ratio", 100, 10, 10000);
+
+        builder.pop(); // decompression_guard
+
+        builder.comment(
+                "Stage-Aware Read Timeouts",
+                "Protects against half-open connections and slow-login attacks",
+                "by applying different read timeouts for each connection stage."
+        ).push("timeouts");
+
+        securityHandshakeTimeoutSec = builder
+                .comment(
+                        "Read timeout in seconds during the HANDSHAKE stage.",
+                        "Range: 1 - 30  |  Default: 5"
+                )
+                .defineInRange("handshake_sec", 5, 1, 30);
+
+        securityLoginTimeoutSec = builder
+                .comment(
+                        "Read timeout in seconds during the LOGIN stage.",
+                        "Range: 5 - 60  |  Default: 10"
+                )
+                .defineInRange("login_sec", 10, 5, 60);
+
+        securityPlayTimeoutSec = builder
+                .comment(
+                        "Read timeout in seconds during the PLAY stage.",
+                        "Range: 10 - 120  |  Default: 30"
+                )
+                .defineInRange("play_sec", 30, 10, 120);
+
+        builder.pop(); // timeouts
+
+        builder.comment(
+                "Packet Size Validation",
+                "Rejects oversized decoded packet frames to prevent resource exhaustion."
+        ).push("packet_size");
+
+        securityMaxPacketBytes = builder
+                .comment(
+                        "Maximum decoded packet frame size in bytes.",
+                        "Range: 65536 (64 KiB) - 16777216 (16 MiB)  |  Default: 2097152 (2 MiB)"
+                )
+                .defineInRange("max_bytes", 2 * 1024 * 1024, 65536, 16 * 1024 * 1024);
+
+        builder.pop(); // packet_size
+
+        builder.comment(
+                "Handshake Validation",
+                "Validates protocol version and server address in the initial handshake",
+                "to reject scanning bots and malformed clients early."
+        ).push("handshake_validation");
+
+        securityMinProtocolVersion = builder
+                .comment(
+                        "Minimum accepted protocol version.",
+                        "Range: 1 - 2000  |  Default: 3 (Minecraft 1.7)"
+                )
+                .defineInRange("min_protocol", 3, 1, 2000);
+
+        securityMaxProtocolVersion = builder
+                .comment(
+                        "Maximum accepted protocol version.",
+                        "Range: 100 - 5000  |  Default: 1100"
+                )
+                .defineInRange("max_protocol", 1100, 100, 5000);
+
+        securityMaxHandshakeAddressLength = builder
+                .comment(
+                        "Maximum server address string length in the handshake.",
+                        "Range: 32 - 512  |  Default: 255"
+                )
+                .defineInRange("max_address_length", 255, 32, 512);
+
+        builder.pop(); // handshake_validation
+
+
+        builder.comment(
+                "Anomaly Detection",
+                "Tracks suspicious behaviour patterns per connection and disconnects",
+                "connections that exceed a configurable weighted strike threshold.",
+                "Strike weights: HMAC failure=3, compression error=2,",
+                "invalid packet=2, missing hello=1, rapid reconnect=1, protocol violation=3."
+        ).push("anomaly");
+
+        securityAnomalyStrikeThreshold = builder
+                .comment(
+                        "Total weighted strikes before the connection is forcibly closed.",
+                        "Range: 3 - 100  |  Default: 10"
+                )
+                .defineInRange("strike_threshold", 10, 3, 100);
+
+        builder.pop(); // anomaly
+
+        builder.comment(
+                "Netty Resource Protection",
+                "Prevents memory exhaustion from slow clients that don't read",
+                "outbound data fast enough (slow-read / slow-loris attacks)."
+        ).push("resource_guard");
+
+        securityWriteWatermarkLow = builder
+                .comment(
+                        "Write buffer low watermark in bytes.",
+                        "Range: 32768 - 4194304  |  Default: 524288 (512 KiB)"
+                )
+                .defineInRange("watermark_low", 512 * 1024, 32768, 4 * 1024 * 1024);
+
+        securityWriteWatermarkHigh = builder
+                .comment(
+                        "Write buffer high watermark in bytes.",
+                        "Range: 65536 - 16777216  |  Default: 2097152 (2 MiB)"
+                )
+                .defineInRange("watermark_high", 2 * 1024 * 1024, 65536, 16 * 1024 * 1024);
+
+        securityMaxPendingWrites = builder
+                .comment(
+                        "Maximum pending writes per connection before new writes are dropped.",
+                        "Range: 128 - 65536  |  Default: 4096"
+                )
+                .defineInRange("max_pending_writes", 4096, 128, 65536);
+
+        securityMaxUnwritableSeconds = builder
+                .comment(
+                        "Maximum seconds a channel can stay unwritable before force-close.",
+                        "Range: 5 - 120  |  Default: 15"
+                )
+                .defineInRange("max_unwritable_seconds", 15, 5, 120);
+
+        builder.pop(); // resource_guard
+
+        builder.comment(
+                "Security Metrics",
+                "Periodic logging of security event counters."
+        ).push("metrics");
+
+        securityMetricsIntervalSec = builder
+                .comment(
+                        "Interval in seconds for logging security metric summaries.",
+                        "Set to 0 to disable periodic logging.",
+                        "Range: 0 - 3600  |  Default: 300 (5 min)"
+                )
+                .defineInRange("interval_sec", 300, 0, 3600);
+
+        builder.pop(); // metrics
+
+        builder.pop(); // security
     }
 
     /**
@@ -386,6 +648,29 @@ public final class KryptonForgeConfig {
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
         KryptonConfig.proxyMode                = proxyMode.get();
         KryptonConfig.velocityForwardingSecret = velocityForwardingSecret.get();
+
+        // --- Security ---
+        KryptonConfig.securityEnabled                  = securityEnabled.get();
+        KryptonConfig.securityConnectionRateLimit       = securityConnectionRateLimit.get();
+        KryptonConfig.securityConnectionBurstLimit      = securityConnectionBurstLimit.get();
+        KryptonConfig.securityPacketRateLimitEnabled    = securityPacketRateLimitEnabled.get();
+        KryptonConfig.securityPacketsPerSecond          = securityPacketsPerSecond.get();
+        KryptonConfig.securityPacketBurstLimit          = securityPacketBurstLimit.get();
+        KryptonConfig.securityMaxDecompressedBytes      = securityMaxDecompressedBytes.get();
+        KryptonConfig.securityMaxCompressionRatio       = securityMaxCompressionRatio.get();
+        KryptonConfig.securityHandshakeTimeoutSec       = securityHandshakeTimeoutSec.get();
+        KryptonConfig.securityLoginTimeoutSec           = securityLoginTimeoutSec.get();
+        KryptonConfig.securityPlayTimeoutSec            = securityPlayTimeoutSec.get();
+        KryptonConfig.securityMaxPacketBytes            = securityMaxPacketBytes.get();
+        KryptonConfig.securityMinProtocolVersion        = securityMinProtocolVersion.get();
+        KryptonConfig.securityMaxProtocolVersion        = securityMaxProtocolVersion.get();
+        KryptonConfig.securityMaxHandshakeAddressLength = securityMaxHandshakeAddressLength.get();
+        KryptonConfig.securityAnomalyStrikeThreshold    = securityAnomalyStrikeThreshold.get();
+        KryptonConfig.securityWriteWatermarkLow         = securityWriteWatermarkLow.get();
+        KryptonConfig.securityWriteWatermarkHigh        = securityWriteWatermarkHigh.get();
+        KryptonConfig.securityMaxPendingWrites          = securityMaxPendingWrites.get();
+        KryptonConfig.securityMaxUnwritableSeconds      = securityMaxUnwritableSeconds.get();
+        KryptonConfig.securityMetricsIntervalSec        = securityMetricsIntervalSec.get();
     }
 }
 

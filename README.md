@@ -12,9 +12,11 @@ Krypton Hybrid is a fork based on [Krypton fnp](https://github.com/404Setup/Kryp
 ## Differentiation
 1. Compatibility support for hybrid servers is offered.
 
-2. Commands are provided to monitor traffic usage.
+2. Commands are provided to monitor traffic usage and security status.
 
 3. This project prioritizes using zstd as the primary compression algorithm, while also providing optimizations for entity tracking and communication encoding from the original version.
+
+4. Built-in network security and DDoS protection layer — connection/packet rate limiting, decompression bomb guard, stage-aware timeouts, handshake validation, anomaly detection, and Netty resource protection.
 
 ## Technical Details
 
@@ -157,9 +159,93 @@ ChunkMap.tick() RETURN
 /krypton packets bybytes [n] – top N packet types by bytes
 /krypton mods bycount [n]    – top N mod namespaces by count
 /krypton mods bybytes [n]    – top N mod namespaces by bytes
+/krypton security status     – security metrics snapshot (rate limits, bombs, anomalies, etc.)
 ```
 
 Requires operator permission level 2.
+
+---
+
+### 8. Network Security & DDoS Protection
+
+Krypton Hybrid includes a comprehensive, configurable network security layer injected directly into the Netty pipeline. All features are gated behind a single `security.enabled` toggle and can be fine-tuned via the `[security]` section in `krypton_hybrid-common.toml`.
+
+#### Netty Pipeline (Security Handlers)
+
+```
+[Socket]
+  → krypton_rate_limiter      Per-IP sliding-window connection rate limiter
+  → krypton_timeout           Stage-aware read timeout (HANDSHAKE → LOGIN → PLAY)
+  → timeout (vanilla)
+  → legacy_query (vanilla)
+  → splitter (Varint21)
+  → krypton_size_validator    Decoded frame size validation
+  → krypton_pps_limiter       Per-connection token-bucket packet rate limiter
+  → decoder
+  → prepender
+  → encoder
+  → krypton_resource_guard    Write watermarks + pending queue protection
+  → packet_handler (Connection)
+```
+
+#### Security Modules
+
+| Module | Class | Description |
+|---|---|---|
+| **Connection Rate Limiter** | `ConnectionRateLimiter` | Per-IP sliding-window counter. Closes new connections exceeding the burst limit (default: 20/s). `@Sharable` singleton — zero per-connection allocation. |
+| **Packet Rate Limiter** | `PacketRateLimiter` | Per-connection token-bucket algorithm. Sustained limit (default: 500 PPS) with burst capacity (default: 800). Closes connection after 5 consecutive violations. |
+| **Decompression Bomb Guard** | `DecompressionBombGuard` | Pre-decompression validation: absolute size cap (default: 16 MiB) + compression ratio limit (default: 100:1). Integrated into both `ZstdCompressDecoder` and `MinecraftCompressDecoder`. |
+| **Handshake Timeout** | `HandshakeTimeoutHandler` | Stage-aware `ReadTimeoutHandler`: HANDSHAKE 5s → LOGIN 10s → PLAY 30s. Prevents half-open connection exhaustion. |
+| **Packet Size Validator** | `PacketSizeValidator` | Post-frame-decode size check (default max: 2 MiB). Rejects empty frames and force-closes on severely oversized packets (>4× limit). |
+| **Handshake Validator** | `HandshakeValidator` | Validates protocol version range, server address length/content, port range. Rejects scanning bots and malformed clients at earliest stage. |
+| **Anomaly Detector** | `AnomalyDetector` | Per-connection weighted strike system. Tracks HMAC failures (weight 3), compression errors (2), protocol violations (3), invalid packets (2), missing hello (1). Disconnects at threshold (default: 10 strikes). |
+| **Netty Resource Guard** | `NettyResourceGuard` | Configures write buffer watermarks (512 KiB / 2 MiB). Limits pending write queue (default: 4096). Force-closes channels unwritable for too long (default: 15s). Prevents slow-read memory exhaustion. |
+| **Security Metrics** | `SecurityMetrics` | Lock-free `AtomicLong` counters for all security events. Periodic summary logging (default: every 5 min). Exposed via `/krypton security status`. |
+
+#### Configuration (`[security]` section)
+
+```toml
+[security]
+  enabled = true                            # Global kill-switch
+
+  [security.connection_rate_limit]
+    rate = 10                               # Per-IP sustained connections/s
+    burst = 20                              # Per-IP burst limit
+
+  [security.packet_rate_limit]
+    enabled = true
+    pps = 500                               # Sustained packets/s per connection
+    burst = 800                             # Token bucket capacity
+
+  [security.decompression_guard]
+    max_decompressed_bytes = 16777216       # 16 MiB absolute cap
+    max_ratio = 100                         # Max compression ratio (100:1)
+
+  [security.timeouts]
+    handshake_sec = 5
+    login_sec = 10
+    play_sec = 30
+
+  [security.packet_size]
+    max_bytes = 2097152                     # 2 MiB max decoded frame
+
+  [security.handshake_validation]
+    min_protocol = 3                        # Minecraft 1.7+
+    max_protocol = 1100                     # Headroom for future versions
+    max_address_length = 255
+
+  [security.anomaly]
+    strike_threshold = 10                   # Weighted strikes before disconnect
+
+  [security.resource_guard]
+    watermark_low = 524288                  # 512 KiB
+    watermark_high = 2097152               # 2 MiB
+    max_pending_writes = 4096
+    max_unwritable_seconds = 15
+
+  [security.metrics]
+    interval_sec = 300                      # Summary log interval (0 = disabled)
+```
 
 ## test data
 In the original test, this mod was able to reduce the initial package size to 13% of the original.

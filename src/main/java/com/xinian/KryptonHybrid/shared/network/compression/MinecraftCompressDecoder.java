@@ -1,6 +1,7 @@
 package com.xinian.KryptonHybrid.shared.network.compression;
 
 import com.velocitypowered.natives.compression.VelocityCompressor;
+import com.xinian.KryptonHybrid.shared.network.security.DecompressionBombGuard;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -52,6 +53,9 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
                     "Uncompressed size %s exceeds hard threshold of %s", claimedUncompressedSize,
                     UNCOMPRESSED_CAP);
         }
+
+        // --- Decompression bomb guard ---
+        DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize);
 
         ByteBuf compatibleIn = ensureCompatible(ctx.alloc(), compressor, in);
         ByteBuf uncompressed = preferredBuffer(ctx.alloc(), compressor, claimedUncompressedSize);

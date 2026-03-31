@@ -281,6 +281,162 @@ public final class KryptonConfig {
      */
     public static volatile String velocityForwardingSecret = "";
 
+    // ═══════════════════════════════════════════════════════════════════
+    // §  Network Security & DDoS Protection
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Global kill-switch for all security features.
+     * When {@code false}, no security handlers are injected into the pipeline.
+     * Default: {@code true}.
+     */
+    public static volatile boolean securityEnabled = true;
+
+    // --- Connection Rate Limiting ---
+
+    /**
+     * Maximum new connections accepted per IP per second (sustained rate).
+     * Default: 10.
+     */
+    public static volatile int securityConnectionRateLimit = 10;
+
+    /**
+     * Burst limit for per-IP connections (peak within a 1-second window).
+     * Default: 20.
+     */
+    public static volatile int securityConnectionBurstLimit = 20;
+
+    // --- Packet Rate Limiting ---
+
+    /**
+     * Whether per-connection packet rate limiting is enabled.
+     * Default: {@code true}.
+     */
+    public static volatile boolean securityPacketRateLimitEnabled = true;
+
+    /**
+     * Sustained packets-per-second limit per connection.
+     * Default: 500.
+     */
+    public static volatile double securityPacketsPerSecond = 500.0;
+
+    /**
+     * Maximum token accumulation (burst capacity) for the packet rate limiter.
+     * Default: 800.
+     */
+    public static volatile double securityPacketBurstLimit = 800.0;
+
+    // --- Decompression Bomb Protection ---
+
+    /**
+     * Maximum allowed decompressed packet size in bytes.
+     * Packets claiming a larger size are rejected before decompression.
+     * Default: 16 MiB (16777216).
+     */
+    public static volatile int securityMaxDecompressedBytes = 16 * 1024 * 1024;
+
+    /**
+     * Maximum allowed compression ratio (uncompressed:compressed).
+     * Packets exceeding this ratio are flagged as bombs and rejected.
+     * Default: 100 (100:1).
+     */
+    public static volatile int securityMaxCompressionRatio = 100;
+
+    // --- Handshake / Login / Play Timeouts ---
+
+    /**
+     * Read timeout in seconds during the HANDSHAKE stage (waiting for the
+     * initial handshake packet after TCP connect).
+     * Default: 5.
+     */
+    public static volatile int securityHandshakeTimeoutSec = 5;
+
+    /**
+     * Read timeout in seconds during the LOGIN stage (encryption, compression
+     * negotiation, Velocity forwarding).
+     * Default: 10.
+     */
+    public static volatile int securityLoginTimeoutSec = 10;
+
+    /**
+     * Read timeout in seconds during the PLAY stage (safety net for dead
+     * connections; vanilla keepalive provides primary detection).
+     * Default: 30.
+     */
+    public static volatile int securityPlayTimeoutSec = 30;
+
+    // --- Packet Size Validation ---
+
+    /**
+     * Maximum decoded packet frame size in bytes (after VarInt length stripping).
+     * Default: 2 MiB (2097152).
+     */
+    public static volatile int securityMaxPacketBytes = 2 * 1024 * 1024;
+
+    // --- Handshake Validation ---
+
+    /**
+     * Minimum accepted protocol version in the handshake packet.
+     * Default: 3 (Minecraft 1.7).
+     */
+    public static volatile int securityMinProtocolVersion = 3;
+
+    /**
+     * Maximum accepted protocol version in the handshake packet.
+     * Default: 1100 (headroom for future versions).
+     */
+    public static volatile int securityMaxProtocolVersion = 1100;
+
+    /**
+     * Maximum server address length in the handshake packet.
+     * Default: 255 (vanilla maximum).
+     */
+    public static volatile int securityMaxHandshakeAddressLength = 255;
+
+
+    // --- Anomaly Detection ---
+
+    /**
+     * Strike threshold: total weighted strikes before auto-ban.
+     * Default: 10.
+     */
+    public static volatile int securityAnomalyStrikeThreshold = 10;
+
+    // --- Netty Resource Protection ---
+
+    /**
+     * Low watermark for the write buffer (bytes).
+     * Default: 512 KiB (524288).
+     */
+    public static volatile int securityWriteWatermarkLow = 512 * 1024;
+
+    /**
+     * High watermark for the write buffer (bytes).
+     * Default: 2 MiB (2097152).
+     */
+    public static volatile int securityWriteWatermarkHigh = 2 * 1024 * 1024;
+
+    /**
+     * Maximum pending writes per connection before new writes are dropped.
+     * Default: 4096.
+     */
+    public static volatile int securityMaxPendingWrites = 4096;
+
+    /**
+     * Maximum seconds a channel can stay unwritable before being force-closed.
+     * Default: 15.
+     */
+    public static volatile int securityMaxUnwritableSeconds = 15;
+
+    // --- Security Metrics ---
+
+    /**
+     * Interval in seconds for logging security metric summaries.
+     * Set to 0 to disable periodic logging.
+     * Default: 300 (5 minutes).
+     */
+    public static volatile int securityMetricsIntervalSec = 300;
+
     private KryptonConfig() {}
 }
 

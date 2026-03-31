@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
 
 import java.util.List;
 import java.util.Map;
@@ -45,6 +46,9 @@ public final class KryptonStatsCommand {
                         .executes(ctx -> executeModsByBytes(ctx, 10))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
                             .executes(ctx -> executeModsByBytes(ctx, IntegerArgumentType.getInteger(ctx, "limit"))))))
+                .then(Commands.literal("security")
+                    .then(Commands.literal("status")
+                        .executes(KryptonStatsCommand::executeSecurityStatus)))
         );
     }
 
@@ -225,6 +229,55 @@ public final class KryptonStatsCommand {
 
     private static String truncate(String s, int maxLen) {
         return s.length() <= maxLen ? s : s.substring(0, maxLen - 2) + "..";
+    }
+
+    // ── Security commands ─────────────────────────────────────────────
+
+    private static int executeSecurityStatus(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        SecurityMetrics m = SecurityMetrics.INSTANCE;
+
+        source.sendSuccess(() ->
+            Component.literal("=== Krypton Security Status ===")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Security: "))
+            .append(val(KryptonConfig.securityEnabled ? "ENABLED" : "DISABLED",
+                    KryptonConfig.securityEnabled ? ChatFormatting.GREEN : ChatFormatting.RED)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Conn rate-limited: "))
+            .append(val(String.valueOf(m.getConnectionsRateLimited()), ChatFormatting.YELLOW)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Pkts rate-limited: "))
+            .append(val(String.valueOf(m.getPacketsRateLimited()), ChatFormatting.YELLOW))
+            .append(lbl("  |  Pkts size-rejected: "))
+            .append(val(String.valueOf(m.getPacketsSizeRejected()), ChatFormatting.RED)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Decomp bombs: "))
+            .append(val(String.valueOf(m.getDecompressionBombs()), ChatFormatting.RED))
+            .append(lbl("  |  Handshakes rejected: "))
+            .append(val(String.valueOf(m.getHandshakesRejected()), ChatFormatting.YELLOW)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Timeouts: "))
+            .append(val(String.valueOf(m.getTimeouts()), ChatFormatting.YELLOW))
+            .append(lbl("  |  Anomaly disconnects: "))
+            .append(val(String.valueOf(m.getAnomalyDisconnects()), ChatFormatting.RED))
+            .append(lbl("  |  Anomaly events: "))
+            .append(val(String.valueOf(m.getAnomalyEvents()), ChatFormatting.YELLOW)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Writes dropped: "))
+            .append(val(String.valueOf(m.getWritesDropped()), ChatFormatting.YELLOW))
+            .append(lbl("  |  Watermark breaches: "))
+            .append(val(String.valueOf(m.getWatermarkBreaches()), ChatFormatting.YELLOW)), false);
+
+
+        return 1;
     }
 
     private static int executeReset(CommandContext<CommandSourceStack> ctx) {

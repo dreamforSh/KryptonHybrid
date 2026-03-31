@@ -37,6 +37,9 @@
     "network.pipeline.ConnectionCapabilityMixin",
     "network.pipeline.VelocityDetectionMixin",
     "network.pipeline.Varint21FrameDecoderMixin",
+    "network.pipeline.ServerConnectionListenerMixin",
+    "network.pipeline.HandshakeValidatorMixin",
+    "network.pipeline.LoginTimeoutAdvanceMixin",
     "network.pipeline.compression.ConnectionMixin",
     "network.pipeline.encryption.ConnectionMixin",
     "network.pipeline.encryption.ServerLoginPacketListenerImplMixin"

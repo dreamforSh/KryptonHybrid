@@ -8,6 +8,7 @@ import com.xinian.KryptonHybrid.shared.network.KryptonCapabilityHolder;
 import com.xinian.KryptonHybrid.shared.network.velocity.VelocityForwardingPayload;
 import com.xinian.KryptonHybrid.shared.network.velocity.VelocityLoginQueryPayload;
 import com.xinian.KryptonHybrid.shared.network.velocity.VelocityModernForwardingHandler;
+import com.xinian.KryptonHybrid.shared.network.security.AnomalyDetector;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.login.ClientboundCustomQueryPacket;
@@ -142,19 +143,25 @@ public abstract class VelocityDetectionMixin {
         ci.cancel(); // Prevent the vanilla disconnect
 
         if (!(packet.payload() instanceof VelocityForwardingPayload forwardingPayload)) {
-            // Client didn't respond with data — not a Velocity proxy
+
+            AnomalyDetector.get(this.connection.channel())
+                    .recordStrike(AnomalyDetector.AnomalyType.HMAC_FAILURE,
+                            "No forwarding payload in velocity response");
             disconnect(Component.literal(
                     "This server requires you to connect through the Velocity proxy."));
             return;
         }
 
-        // Verify HMAC and parse the forwarding data
+
         VelocityModernForwardingHandler.ForwardingResult result =
                 VelocityModernForwardingHandler.processForwardingData(
                         forwardingPayload.data(),
                         KryptonConfig.velocityForwardingSecret);
 
         if (result == null) {
+            AnomalyDetector.get(this.connection.channel())
+                    .recordStrike(AnomalyDetector.AnomalyType.HMAC_FAILURE,
+                            "HMAC verification or forwarding data parse failed");
             disconnect(Component.literal(
                     "Could not verify your connection. Check the forwarding secret."));
             return;
