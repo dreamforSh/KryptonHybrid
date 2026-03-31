@@ -2,11 +2,14 @@ package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import net.minecraft.network.Connection;
 import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
+import com.xinian.KryptonHybrid.shared.network.CapabilityContext;
+import com.xinian.KryptonHybrid.shared.network.KryptonCapabilityHolder;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -17,6 +20,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Injects into {@link PacketEncoder} to:
  * <ol>
+ *   <li>Set the per-connection {@link CapabilityContext} before encoding so that
+ *       write-side mixins (chunk data, light data, block entity delta) can check
+ *       negotiated capabilities and fall back to vanilla format when needed.</li>
  *   <li>Record per-packet-type and per-mod traffic stats for {@code /krypton stats}.</li>
  *   <li>Implement the <strong>Broadcast Serialization Cache</strong> (P0-⑧): when the
  *       same {@link Packet} object instance is encoded on the same Netty I/O thread
@@ -29,25 +35,29 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class PacketEncoderMixin {
 
     /**
-     * HEAD inject: check the broadcast serialization cache before encoding.
-     * If the same Packet instance was already encoded on this thread, write the
-     * cached bytes directly and cancel the vanilla encode.
+     * HEAD inject: set CapabilityContext and check broadcast cache.
      */
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
+        // Set per-connection capabilities for write-side mixins
+        Connection connection = (Connection) ctx.pipeline().get("packet_handler");
+        if (connection instanceof KryptonCapabilityHolder holder) {
+            CapabilityContext.set(holder.krypton$getCapabilities());
+        }
+
         byte[] cached = BroadcastSerializationCache.get(packet);
         if (cached != null) {
             out.writeBytes(cached);
             // Track stats for the cached write too
             NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), cached.length);
             NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), cached.length);
+            CapabilityContext.clear();
             ci.cancel();
         }
     }
 
     /**
-     * TAIL inject: record traffic stats and populate the broadcast serialization
-     * cache for future same-instance encodes on this Netty I/O thread.
+     * TAIL inject: record traffic stats, populate broadcast cache, and clear CapabilityContext.
      */
     @Inject(method = "encode", at = @At("TAIL"))
     private void kryptonfnp$trackAndCachePacket(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
@@ -61,6 +71,9 @@ public class PacketEncoderMixin {
             out.getBytes(out.readerIndex(), serialized);
             BroadcastSerializationCache.put(packet, serialized);
         }
+
+        // Clear capabilities context after encoding
+        CapabilityContext.clear();
     }
 
     @Unique

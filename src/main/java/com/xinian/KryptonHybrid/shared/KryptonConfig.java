@@ -3,7 +3,7 @@ package com.xinian.KryptonHybrid.shared;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
 
 /**
- * Loader-agnostic configuration value holder for KryptonFNP.
+ * Loader-agnostic configuration value holder for Krypton Hybrid.
  *
  * <p>This class contains only plain {@code volatile} fields that any loader-specific
  * config implementation (Forge {@code ForgeConfigSpec}, Fabric Cloth Config, 鈥? can
@@ -242,6 +242,44 @@ public final class KryptonConfig {
      * Default: {@code true}.
      */
     public static volatile boolean blockEntityDeltaEnabled = true;
+
+    // --- Proxy Compatibility ---
+
+    /**
+     * Controls how Krypton Hybrid interacts with reverse proxies (e.g. Velocity).
+     * <ul>
+     *   <li>{@link ProxyMode#NONE} — no proxy; all optimizations active (direct
+     *       client↔server connection). This is the default.</li>
+     *   <li>{@link ProxyMode#AUTO} — auto-detect Velocity via the
+     *       {@code velocity:player_info} login plugin channel. When detected,
+     *       Zstd compression is disabled on the backend leg and custom wire formats
+     *       are gated behind the {@code krypton_hybrid:hello} handshake.</li>
+     *   <li>{@link ProxyMode#VELOCITY} — assume every connection comes through
+     *       Velocity. Forces ZLIB and gates all custom wire formats.</li>
+     * </ul>
+     * Default: {@link ProxyMode#NONE}.
+     */
+    public static volatile ProxyMode proxyMode = ProxyMode.NONE;
+
+    /**
+     * Shared secret for Velocity Modern Forwarding (HMAC-SHA256 verification).
+     *
+     * <p>When non-empty and {@code proxyMode} is {@link ProxyMode#AUTO} or
+     * {@link ProxyMode#VELOCITY}, the server will:
+     * <ol>
+     *   <li>Send a {@code velocity:player_info} login plugin request to each
+     *       connecting client (actually the Velocity proxy).</li>
+     *   <li>Verify the HMAC-SHA256 signature in the response using this secret.</li>
+     *   <li>Extract the real player IP, UUID, name, and skin properties.</li>
+     * </ol>
+     *
+     * <p>This secret must match the {@code forwarding-secret} configured in
+     * Velocity's {@code velocity.toml} (or the content of the file referenced
+     * by {@code forwarding-secret-file}).</p>
+     *
+     * <p>Default: {@code ""} (empty — modern forwarding disabled).</p>
+     */
+    public static volatile String velocityForwardingSecret = "";
 
     private KryptonConfig() {}
 }

@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.mixin.network.chunk;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.CapabilityContext;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -95,6 +96,8 @@ public abstract class ChunkLightCompressMixin {
     @Inject(method = "write", at = @At("HEAD"), cancellable = true)
     private void write$krypton(FriendlyByteBuf buf, CallbackInfo ci) {
         if (!KryptonConfig.lightOptEnabled) return;
+        // When behind a proxy with a non-Krypton client, fall back to vanilla format
+        if (!CapabilityContext.lightOptAllowed()) return;
 
         int uniformCount = krypton$countUniform(this.skyUpdates) + krypton$countUniform(this.blockUpdates);
         int totalCount   = this.skyUpdates.size() + this.blockUpdates.size();

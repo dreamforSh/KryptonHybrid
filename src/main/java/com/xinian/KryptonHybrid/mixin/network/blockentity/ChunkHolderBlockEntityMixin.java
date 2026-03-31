@@ -3,6 +3,8 @@ package com.xinian.KryptonHybrid.mixin.network.blockentity;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.BlockEntityDeltaCache;
 import com.xinian.KryptonHybrid.shared.network.BlockEntityDeltaHolder;
+import com.xinian.KryptonHybrid.shared.network.KryptonCapabilityHolder;
+import com.xinian.KryptonHybrid.shared.network.KryptonCapabilities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -86,6 +88,21 @@ public class ChunkHolderBlockEntityMixin {
         for (ServerPlayer player : players) {
             if (!(player.connection instanceof BlockEntityDeltaHolder holder)) {
                 // Fallback: send full packet
+                player.connection.send(fullPacket);
+                continue;
+            }
+
+            // Check if this player's connection supports block entity delta
+            boolean deltaSupported = true;
+            if (player.connection.getConnection() instanceof KryptonCapabilityHolder capHolder) {
+                KryptonCapabilities caps = capHolder.krypton$getCapabilities();
+                if (caps.isNegotiated() && !caps.isBlockEntityDeltaSupported()) {
+                    deltaSupported = false;
+                }
+            }
+
+            if (!deltaSupported) {
+                // Connection doesn't support delta — send full packet
                 player.connection.send(fullPacket);
                 continue;
             }
