@@ -37,6 +37,7 @@
     "network.pipeline.ServerConnectionListenerMixin",
     "network.pipeline.HandshakeValidatorMixin",
     "network.pipeline.LoginTimeoutAdvanceMixin",
+    "network.pipeline.ConfigurationFinishPhaseMixin",
     "network.pipeline.compression.ConnectionMixin",
     "network.pipeline.encryption.ConnectionMixin",
     "network.pipeline.encryption.ServerLoginPacketListenerImplMixin"

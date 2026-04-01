@@ -251,10 +251,14 @@ public final class KryptonStatsCommand {
             .append(val(String.valueOf(m.getConnectionsRateLimited()), ChatFormatting.YELLOW)), false);
 
         source.sendSuccess(() -> Component.empty()
-            .append(lbl("Pkts rate-limited: "))
-            .append(val(String.valueOf(m.getPacketsRateLimited()), ChatFormatting.YELLOW))
-            .append(lbl("  |  Pkts size-rejected: "))
+            .append(lbl("Pkts size-rejected: "))
             .append(val(String.valueOf(m.getPacketsSizeRejected()), ChatFormatting.RED)), false);
+
+        source.sendSuccess(() -> Component.empty()
+            .append(lbl("Read-limit rejected: "))
+            .append(val(String.valueOf(m.getReadLimitRejected()), ChatFormatting.RED))
+            .append(lbl("  |  Null frames dropped: "))
+            .append(val(String.valueOf(m.getNullFramesDropped()), ChatFormatting.YELLOW)), false);
 
         source.sendSuccess(() -> Component.empty()
             .append(lbl("Decomp bombs: "))

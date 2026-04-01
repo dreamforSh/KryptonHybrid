@@ -108,6 +108,7 @@ public final class AnomalyDetector {
                 KryptonConfig.securityAnomalyStrikeThreshold, details);
 
         if (totalStrikes >= KryptonConfig.securityAnomalyStrikeThreshold) {
+            SecurityMetrics.INSTANCE.recordAnomalyDisconnect();
             LOGGER.warn("[Krypton Security] Strike threshold reached for {} — closing connection",
                     channel.remoteAddress());
             channel.close();

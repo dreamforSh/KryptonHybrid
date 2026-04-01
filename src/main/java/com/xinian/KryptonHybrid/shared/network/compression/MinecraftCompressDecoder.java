@@ -55,7 +55,7 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         }
 
         // --- Decompression bomb guard ---
-        DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize);
+        DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize, ctx.channel());
 
         ByteBuf compatibleIn = ensureCompatible(ctx.alloc(), compressor, in);
         ByteBuf uncompressed = preferredBuffer(ctx.alloc(), compressor, claimedUncompressedSize);

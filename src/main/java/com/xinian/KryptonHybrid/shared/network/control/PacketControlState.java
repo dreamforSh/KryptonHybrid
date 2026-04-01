@@ -1,0 +1,45 @@
+package com.xinian.KryptonHybrid.shared.network.control;
+
+import io.netty.channel.Channel;
+import io.netty.util.AttributeKey;
+
+/**
+ * Per-connection state for lightweight inbound packet-control decisions.
+ */
+public final class PacketControlState {
+    public static final AttributeKey<PacketControlState> ATTR_KEY =
+            AttributeKey.valueOf("krypton_packet_control_state");
+
+    private volatile PacketControlPhase phase = PacketControlPhase.CONNECTED;
+    private volatile boolean helloNegotiated;
+
+    private PacketControlState() {}
+
+    public static PacketControlState get(Channel channel) {
+        PacketControlState state = channel.attr(ATTR_KEY).get();
+        if (state == null) {
+            state = new PacketControlState();
+            channel.attr(ATTR_KEY).set(state);
+        }
+        return state;
+    }
+
+    public PacketControlPhase getPhase() {
+        return this.phase;
+    }
+
+    public void setPhase(PacketControlPhase phase) {
+        this.phase = phase;
+    }
+
+    public boolean isHelloNegotiated() {
+        return this.helloNegotiated;
+    }
+
+    public void markHelloNegotiated() {
+        this.helloNegotiated = true;
+    }
+
+
+}
+

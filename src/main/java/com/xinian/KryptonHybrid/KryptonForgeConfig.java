@@ -44,6 +44,34 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.BooleanValue                    zstdDictEnabled;
     private final ModConfigSpec.ConfigValue<String>             zstdDictPath;
     private final ModConfigSpec.BooleanValue                    zstdDictRequired;
+    private final ModConfigSpec.BooleanValue                    securityEnabled;
+    private final ModConfigSpec.IntValue                        securityConnectionRatePerSecond;
+    private final ModConfigSpec.IntValue                        securityConnectionBurstLimit;
+    private final ModConfigSpec.IntValue                        securityConnectionQuarantineSeconds;
+    private final ModConfigSpec.IntValue                        securityRapidReconnectWindowMs;
+    private final ModConfigSpec.IntValue                        securityRapidReconnectPenalty;
+    private final ModConfigSpec.IntValue                        securityMaxDecompressedBytes;
+    private final ModConfigSpec.IntValue                        securityMaxCompressionRatio;
+    private final ModConfigSpec.IntValue                        securityMinCompressedBytesForRatioCheck;
+    private final ModConfigSpec.IntValue                        securityHandshakeTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityLoginTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityPlayTimeoutSec;
+    private final ModConfigSpec.IntValue                        securityMaxPacketBytes;
+    private final ModConfigSpec.IntValue                        securityMaxCustomPayloadBytes;
+    private final ModConfigSpec.BooleanValue                    securityReadLimitsEnabled;
+    private final ModConfigSpec.IntValue                        securityMaxStringChars;
+    private final ModConfigSpec.IntValue                        securityMaxCollectionElements;
+    private final ModConfigSpec.IntValue                        securityMaxMapEntries;
+    private final ModConfigSpec.IntValue                        securityMaxCountedElements;
+    private final ModConfigSpec.IntValue                        securityMaxByteArrayBytes;
+    private final ModConfigSpec.IntValue                        securityMinProtocolVersion;
+    private final ModConfigSpec.IntValue                        securityMaxProtocolVersion;
+    private final ModConfigSpec.IntValue                        securityMaxHandshakeAddressLength;
+    private final ModConfigSpec.IntValue                        securityAnomalyStrikeThreshold;
+    private final ModConfigSpec.IntValue                        securityWriteWatermarkLow;
+    private final ModConfigSpec.IntValue                        securityWriteWatermarkHigh;
+    private final ModConfigSpec.IntValue                        securityMaxPendingWrites;
+    private final ModConfigSpec.IntValue                        securityMaxUnwritableSeconds;
     private final ModConfigSpec.BooleanValue                    lightOptEnabled;
     private final ModConfigSpec.BooleanValue                    chunkOptEnabled;
     private final ModConfigSpec.BooleanValue                    dccEnabled;
@@ -192,6 +220,111 @@ public final class KryptonForgeConfig {
                 )
                 .define("dict_required", false);
 
+        builder.pop();
+
+        builder.comment(
+                "Krypton Hybrid - Network Security / Independent Packet Control",
+                "Protects the inbound network path without touching Velocity Native fast paths.",
+                "All checks run in the Minecraft / NeoForge layer and are designed to fail fast",
+                "before expensive decode, decompression, NBT, or gameplay processing begins."
+        ).push("security");
+
+        securityEnabled = builder
+                .comment("Global security kill-switch.", "Default: true")
+                .define("enabled", true);
+
+        builder.comment("Connection-rate limiting and rapid reconnect protection.").push("connection_rate_limit");
+
+        securityConnectionRatePerSecond = builder
+                .comment("Sustained connection attempts per second per IP.", "Range: 1 - 1000  |  Default: 8")
+                .defineInRange("rate", 8, 1, 1000);
+
+        securityConnectionBurstLimit = builder
+                .comment("Burst capacity for new connections per IP.", "Range: 1 - 5000  |  Default: 20")
+                .defineInRange("burst", 20, 1, 5000);
+
+        securityConnectionQuarantineSeconds = builder
+                .comment("Quarantine duration after repeated connection abuse.", "Range: 0 - 3600  |  Default: 30")
+                .defineInRange("quarantine_seconds", 30, 0, 3600);
+
+        securityRapidReconnectWindowMs = builder
+                .comment("Rapid reconnect detection window in milliseconds.", "Range: 0 - 60000  |  Default: 1500")
+                .defineInRange("rapid_reconnect_window_ms", 1500, 0, 60000);
+
+        securityRapidReconnectPenalty = builder
+                .comment("Extra connection tokens consumed on rapid reconnect.", "Range: 0 - 128  |  Default: 4")
+                .defineInRange("rapid_reconnect_penalty", 4, 0, 128);
+
+        builder.pop();
+
+        builder.comment("Decompression-bomb prevention for both ZLIB and ZSTD.").push("decompression_guard");
+
+        securityMaxDecompressedBytes = builder
+                .defineInRange("max_decompressed_bytes", 16 * 1024 * 1024, 1024, Integer.MAX_VALUE);
+        securityMaxCompressionRatio = builder
+                .defineInRange("max_ratio", 100, 1, Integer.MAX_VALUE);
+        securityMinCompressedBytesForRatioCheck = builder
+                .defineInRange("min_compressed_bytes_for_ratio_check", 8, 0, Integer.MAX_VALUE);
+
+        builder.pop();
+
+        builder.comment("Handshake/login timeout budgets.").push("timeouts");
+
+        securityHandshakeTimeoutSec = builder.defineInRange("handshake_sec", 5, 1, 300);
+        securityLoginTimeoutSec = builder.defineInRange("login_sec", 10, 1, 300);
+        securityPlayTimeoutSec = builder.defineInRange("play_sec", 30, 1, 3600);
+
+        builder.pop();
+
+        builder.comment("Frame and logical payload size checks.").push("packet_size");
+
+        securityMaxPacketBytes = builder
+                .defineInRange("frame_max_bytes", 2 * 1024 * 1024, 1024, Integer.MAX_VALUE);
+        securityMaxCustomPayloadBytes = builder
+                .defineInRange("custom_payload_max_bytes", 128 * 1024, 0, Integer.MAX_VALUE);
+        securityReadLimitsEnabled = builder
+                .comment("Enable FriendlyByteBuf read-side hard limits (can break large mod custom payloads).", "Default: false")
+                .define("read_limits_enabled", false);
+        securityMaxStringChars = builder
+                .defineInRange("string_max_chars", 32_767, 1, Integer.MAX_VALUE);
+        securityMaxCollectionElements = builder
+                .defineInRange("collection_max_elements", 16_384, 1, Integer.MAX_VALUE);
+        securityMaxMapEntries = builder
+                .defineInRange("map_max_entries", 8_192, 1, Integer.MAX_VALUE);
+        securityMaxCountedElements = builder
+                .defineInRange("counted_loop_max", 16_384, 1, Integer.MAX_VALUE);
+        securityMaxByteArrayBytes = builder
+                .defineInRange("byte_array_max_bytes", 2 * 1024 * 1024, 1, Integer.MAX_VALUE);
+
+        builder.pop();
+
+        builder.comment("Handshake protocol sanity checks.").push("handshake_validation");
+
+        securityMinProtocolVersion = builder.defineInRange("min_protocol", 3, 0, Integer.MAX_VALUE);
+        securityMaxProtocolVersion = builder.defineInRange("max_protocol", 1100, 0, Integer.MAX_VALUE);
+        securityMaxHandshakeAddressLength = builder.defineInRange("max_address_length", 255, 1, 1024);
+
+        builder.pop();
+
+        builder.comment("Weighted anomaly response policy.").push("anomaly");
+
+        securityAnomalyStrikeThreshold = builder
+                .defineInRange("strike_threshold", 10, 1, 1000);
+
+        builder.pop();
+
+        builder.comment("Write-side backpressure and slow-reader protection.").push("resource_guard");
+
+        securityWriteWatermarkLow = builder
+                .defineInRange("watermark_low", 524_288, 1024, Integer.MAX_VALUE);
+        securityWriteWatermarkHigh = builder
+                .defineInRange("watermark_high", 2_097_152, 1024, Integer.MAX_VALUE);
+        securityMaxPendingWrites = builder
+                .defineInRange("max_pending_writes", 4096, 1, Integer.MAX_VALUE);
+        securityMaxUnwritableSeconds = builder
+                .defineInRange("max_unwritable_seconds", 15, 1, 3600);
+
+        builder.pop();
         builder.pop();
 
         builder.comment(
@@ -375,6 +508,34 @@ public final class KryptonForgeConfig {
         KryptonConfig.zstdDictEnabled      = zstdDictEnabled.get();
         KryptonConfig.zstdDictPath         = zstdDictPath.get();
         KryptonConfig.zstdDictRequired     = zstdDictRequired.get();
+        KryptonConfig.securityEnabled      = securityEnabled.get();
+        KryptonConfig.securityConnectionRatePerSecond = securityConnectionRatePerSecond.get();
+        KryptonConfig.securityConnectionBurstLimit = securityConnectionBurstLimit.get();
+        KryptonConfig.securityConnectionQuarantineSeconds = securityConnectionQuarantineSeconds.get();
+        KryptonConfig.securityRapidReconnectWindowMs = securityRapidReconnectWindowMs.get();
+        KryptonConfig.securityRapidReconnectPenalty = securityRapidReconnectPenalty.get();
+        KryptonConfig.securityMaxDecompressedBytes = securityMaxDecompressedBytes.get();
+        KryptonConfig.securityMaxCompressionRatio = securityMaxCompressionRatio.get();
+        KryptonConfig.securityMinCompressedBytesForRatioCheck = securityMinCompressedBytesForRatioCheck.get();
+        KryptonConfig.securityHandshakeTimeoutSec = securityHandshakeTimeoutSec.get();
+        KryptonConfig.securityLoginTimeoutSec = securityLoginTimeoutSec.get();
+        KryptonConfig.securityPlayTimeoutSec = securityPlayTimeoutSec.get();
+        KryptonConfig.securityMaxPacketBytes = securityMaxPacketBytes.get();
+        KryptonConfig.securityMaxCustomPayloadBytes = securityMaxCustomPayloadBytes.get();
+        KryptonConfig.securityReadLimitsEnabled = securityReadLimitsEnabled.get();
+        KryptonConfig.securityMaxStringChars = securityMaxStringChars.get();
+        KryptonConfig.securityMaxCollectionElements = securityMaxCollectionElements.get();
+        KryptonConfig.securityMaxMapEntries = securityMaxMapEntries.get();
+        KryptonConfig.securityMaxCountedElements = securityMaxCountedElements.get();
+        KryptonConfig.securityMaxByteArrayBytes = securityMaxByteArrayBytes.get();
+        KryptonConfig.securityMinProtocolVersion = securityMinProtocolVersion.get();
+        KryptonConfig.securityMaxProtocolVersion = securityMaxProtocolVersion.get();
+        KryptonConfig.securityMaxHandshakeAddressLength = securityMaxHandshakeAddressLength.get();
+        KryptonConfig.securityAnomalyStrikeThreshold = securityAnomalyStrikeThreshold.get();
+        KryptonConfig.securityWriteWatermarkLow = securityWriteWatermarkLow.get();
+        KryptonConfig.securityWriteWatermarkHigh = securityWriteWatermarkHigh.get();
+        KryptonConfig.securityMaxPendingWrites = securityMaxPendingWrites.get();
+        KryptonConfig.securityMaxUnwritableSeconds = securityMaxUnwritableSeconds.get();
         KryptonConfig.lightOptEnabled      = lightOptEnabled.get();
         KryptonConfig.chunkOptEnabled      = chunkOptEnabled.get();
         KryptonConfig.dccEnabled           = dccEnabled.get();

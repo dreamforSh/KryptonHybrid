@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.mixin.network.pipeline;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
 import com.xinian.KryptonHybrid.shared.network.util.QuietDecoderException;
 import net.minecraft.network.Varint21FrameDecoder;
 import org.spongepowered.asm.mixin.Mixin;
@@ -38,6 +39,7 @@ public class Varint21FrameDecoderMixin {
 
         int packetStart = in.forEachByte(FIND_NON_NUL);
         if (packetStart == -1) {
+            SecurityMetrics.INSTANCE.recordNullFrameDropped();
             in.clear();
             ci.cancel();
             return;

@@ -5,7 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Validates Minecraft handshake packets for protocol version and server address sanity.
+ * Validates Minecraft handshake packets for server address and port sanity.
  *
  * <p>This guard runs early in the connection lifecycle to reject scanning bots,
  * malformed clients, and handshake-based exploits before they consume server
@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
  *
  * <h3>Checks</h3>
  * <ul>
- *   <li>Protocol version must be within the configured range of known versions</li>
  *   <li>Server address must not exceed the configured max length (vanilla: 255)</li>
  *   <li>Server address must not be empty</li>
  *   <li>Server address must not contain control characters</li>
@@ -38,7 +37,7 @@ public final class HandshakeValidator {
     }
 
     /**
-     * Validates a handshake packet's protocol version and server address.
+     * Validates a handshake packet's server address and port.
      *
      * @param protocolVersion the protocol version from the handshake
      * @param serverAddress   the server address string from the handshake
@@ -48,18 +47,7 @@ public final class HandshakeValidator {
     public static ValidationResult validate(int protocolVersion, String serverAddress, int serverPort) {
         if (!KryptonConfig.securityEnabled) return ValidationResult.OK;
 
-
-        int minProto = KryptonConfig.securityMinProtocolVersion;
-        int maxProto = KryptonConfig.securityMaxProtocolVersion;
-
-        if (protocolVersion < minProto || protocolVersion > maxProto) {
-            SecurityMetrics.INSTANCE.recordHandshakeRejected();
-            String reason = String.format(
-                    "Protocol version %d outside allowed range [%d, %d]",
-                    protocolVersion, minProto, maxProto);
-            LOGGER.warn("[Krypton Security] Handshake rejected: {}", reason);
-            return ValidationResult.fail(reason);
-        }
+        // Protocol-version checks are intentionally disabled for compatibility.
 
 
         if (serverAddress == null || serverAddress.isEmpty()) {

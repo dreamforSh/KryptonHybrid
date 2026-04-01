@@ -1,6 +1,8 @@
 package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.security.*;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPipeline;
@@ -33,7 +35,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *   legacy_query           (vanilla LegacyQueryHandler)
  *   splitter               (Varint21FrameDecoder)
  *   krypton_size_validator (PacketSizeValidator — after frame decode)
- *   krypton_pps_limiter    (PacketRateLimiter — per-connection)
  *   decoder                (PacketDecoder)
  *   prepender              (Varint21LengthFieldPrepender)
  *   encoder                (PacketEncoder)
@@ -72,25 +73,16 @@ public class ServerConnectionListenerMixin {
                     new PacketSizeValidator());
         }
 
-        // ── 4. Packet rate limiter (after size validator / before decoder) ─
-        String afterHandler = pipeline.get(PacketSizeValidator.HANDLER_NAME) != null
-                ? PacketSizeValidator.HANDLER_NAME
-                : "splitter";
-        if (pipeline.get(afterHandler) != null) {
-            pipeline.addAfter(afterHandler,
-                    "krypton_pps_limiter",
-                    new PacketRateLimiter());
-        }
-
-        // ── 5. Netty resource guard (before packet_handler, write side) ────
+        // ── 4. Netty resource guard (before packet_handler, write side) ────
         if (pipeline.get("packet_handler") != null) {
             pipeline.addBefore("packet_handler",
                     NettyResourceGuard.HANDLER_NAME,
                     new NettyResourceGuard());
         }
 
-        // ── 6. Initialize anomaly detector attribute ──────────────────────
+        // ── 5. Initialize anomaly detector attribute ──────────────────────
         AnomalyDetector.get(channel);
+        PacketControlState.get(channel).setPhase(PacketControlPhase.HANDSHAKE);
     }
 }
 

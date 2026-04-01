@@ -11,18 +11,19 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Netty {@link ChannelInboundHandlerAdapter} that limits the rate of new TCP
- * connections per source IP address using a sliding-window counter.
+ * connections per source IP address using a token-bucket with rapid reconnect
+ * penalties and short quarantine support.
  *
  * <p>This handler is added <strong>first</strong> in the child channel pipeline
  * (before any Minecraft decoder) by {@code ServerConnectionListenerMixin}.
  * On {@link #channelActive(ChannelHandlerContext)}, it:</p>
  * <ol>
- *   <li>Increments a per-IP counter within a sliding time window.</li>
- *   <li>If the counter exceeds the configured burst limit, closes the channel.</li>
+ *   <li>Consumes tokens from the source IP's connection bucket.</li>
+ *   <li>Applies an extra cost to suspicious rapid reconnects.</li>
+ *   <li>Temporarily quarantines IPs that repeatedly exceed the budget.</li>
  * </ol>
  *
  * <p>The handler is marked {@link ChannelHandler.Sharable} — a single instance is
@@ -34,10 +35,8 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("KryptonSecurity");
 
-    /**
-     * Per-IP sliding window state.
-     */
-    private static final Map<String, SlidingWindow> WINDOWS = new ConcurrentHashMap<>();
+    /** Per-IP connection budget state. */
+    private static final Map<String, ConnectionBudget> WINDOWS = new ConcurrentHashMap<>();
 
     /**
      * Singleton instance shared across all child channels.
@@ -61,17 +60,14 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         }
 
         String ip = address.getHostAddress();
-
-        // ── Rate limiting ─────────────────────────────────────────────
-        int burstLimit = KryptonConfig.securityConnectionBurstLimit;
-
-        SlidingWindow window = WINDOWS.computeIfAbsent(ip, k -> new SlidingWindow());
-        int count = window.incrementAndGet();
-
-        if (count > burstLimit) {
+        ConnectionBudget budget = WINDOWS.computeIfAbsent(ip, k -> new ConnectionBudget());
+        if (!budget.tryAcquire()) {
             SecurityMetrics.INSTANCE.recordConnectionRateLimited();
-            LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} ({}/s, burst {})",
-                    ip, count, burstLimit);
+            LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} (rate={}, burst={}, quarantine={}s)",
+                    ip,
+                    KryptonConfig.securityConnectionRatePerSecond,
+                    KryptonConfig.securityConnectionBurstLimit,
+                    KryptonConfig.securityConnectionQuarantineSeconds);
             ctx.close();
             return;
         }
@@ -85,7 +81,7 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
      */
     public static void evictStaleWindows() {
         long now = System.currentTimeMillis();
-        WINDOWS.entrySet().removeIf(e -> now - e.getValue().lastAccessTime() > 30_000);
+        WINDOWS.entrySet().removeIf(e -> now - e.getValue().lastAccessTime() > 60_000L);
     }
 
     private static InetAddress extractAddress(ChannelHandlerContext ctx) {
@@ -97,29 +93,65 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
 
     // ── Sliding window implementation ─────────────────────────────────
 
-    /**
-     * A simple sliding-window counter that resets every second.
-     */
-    static final class SlidingWindow {
-        private final AtomicInteger count = new AtomicInteger(0);
-        private volatile long windowStart = System.currentTimeMillis();
+    static final class ConnectionBudget {
+        private double tokens;
+        private long lastRefillNanos;
         private volatile long lastAccess = System.currentTimeMillis();
+        private volatile long lastConnectTime;
+        private volatile long quarantineUntilMs;
+        private int consecutiveViolations;
 
-        int incrementAndGet() {
-            long now = System.currentTimeMillis();
-            lastAccess = now;
+        synchronized boolean tryAcquire() {
+            long nowMs = System.currentTimeMillis();
+            lastAccess = nowMs;
 
-            // Reset the window if more than 1 second has passed
-            if (now - windowStart > 1000) {
-                synchronized (this) {
-                    if (now - windowStart > 1000) {
-                        count.set(0);
-                        windowStart = now;
-                    }
-                }
+            if (quarantineUntilMs > nowMs) {
+                return false;
             }
 
-            return count.incrementAndGet();
+            refill(System.nanoTime());
+
+            double cost = 1.0D;
+            int rapidWindowMs = KryptonConfig.securityRapidReconnectWindowMs;
+            if (rapidWindowMs > 0 && lastConnectTime != 0L && nowMs - lastConnectTime <= rapidWindowMs) {
+                cost += KryptonConfig.securityRapidReconnectPenalty;
+            }
+
+            if (tokens >= cost) {
+                tokens -= cost;
+                lastConnectTime = nowMs;
+                consecutiveViolations = 0;
+                return true;
+            }
+
+            consecutiveViolations++;
+            int quarantineSeconds = KryptonConfig.securityConnectionQuarantineSeconds;
+            if (quarantineSeconds > 0 && consecutiveViolations >= 2) {
+                quarantineUntilMs = nowMs + quarantineSeconds * 1000L;
+            }
+            return false;
+        }
+
+        private void refill(long nowNanos) {
+            double rate = KryptonConfig.securityConnectionRatePerSecond;
+            double burst = KryptonConfig.securityConnectionBurstLimit;
+
+            if (lastRefillNanos == 0L) {
+                tokens = burst;
+                lastRefillNanos = nowNanos;
+                return;
+            }
+
+            long elapsed = nowNanos - lastRefillNanos;
+            lastRefillNanos = nowNanos;
+            if (elapsed <= 0L || rate <= 0.0D || burst <= 0.0D) {
+                if (burst > 0.0D && tokens > burst) {
+                    tokens = burst;
+                }
+                return;
+            }
+
+            tokens = Math.min(burst, tokens + (elapsed / 1_000_000_000.0D) * rate);
         }
 
         long lastAccessTime() {

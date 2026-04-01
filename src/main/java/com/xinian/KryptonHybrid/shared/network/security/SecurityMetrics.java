@@ -26,11 +26,14 @@ public final class SecurityMetrics {
 
     // ── Packet-level ──────────────────────────────────────────────────
 
-    /** Packets dropped by the per-connection PPS limiter. */
-    private final AtomicLong packetsRateLimited = new AtomicLong();
-
     /** Packets rejected by the size / NBT depth validator. */
     private final AtomicLong packetsSizeRejected = new AtomicLong();
+
+    /** Payload decode fields rejected by FriendlyByteBuf read-side guardrails. */
+    private final AtomicLong readLimitRejected = new AtomicLong();
+
+    /** All-zero/null frame data dropped by the frame decoder nullping guard. */
+    private final AtomicLong nullFramesDropped = new AtomicLong();
 
     // ── Decompression ─────────────────────────────────────────────────
 
@@ -66,8 +69,9 @@ public final class SecurityMetrics {
     // ── Increment methods ─────────────────────────────────────────────
 
     public void recordConnectionRateLimited()   { connectionsRateLimited.incrementAndGet(); }
-    public void recordPacketRateLimited()        { packetsRateLimited.incrementAndGet(); }
     public void recordPacketSizeRejected()       { packetsSizeRejected.incrementAndGet(); }
+    public void recordReadLimitRejected()        { readLimitRejected.incrementAndGet(); }
+    public void recordNullFrameDropped()         { nullFramesDropped.incrementAndGet(); }
     public void recordDecompressionBomb()         { decompressionBombs.incrementAndGet(); }
     public void recordHandshakeRejected()        { handshakesRejected.incrementAndGet(); }
     public void recordTimeout()                  { timeouts.incrementAndGet(); }
@@ -79,8 +83,9 @@ public final class SecurityMetrics {
     // ── Read methods (for /krypton stats) ─────────────────────────────
 
     public long getConnectionsRateLimited()  { return connectionsRateLimited.get(); }
-    public long getPacketsRateLimited()      { return packetsRateLimited.get(); }
     public long getPacketsSizeRejected()     { return packetsSizeRejected.get(); }
+    public long getReadLimitRejected()       { return readLimitRejected.get(); }
+    public long getNullFramesDropped()       { return nullFramesDropped.get(); }
     public long getDecompressionBombs()      { return decompressionBombs.get(); }
     public long getHandshakesRejected()      { return handshakesRejected.get(); }
     public long getTimeouts()                { return timeouts.get(); }
@@ -95,8 +100,9 @@ public final class SecurityMetrics {
      */
     public void logSummaryAndReset() {
         long connRL  = connectionsRateLimited.getAndSet(0);
-        long pktRL   = packetsRateLimited.getAndSet(0);
         long pktSR   = packetsSizeRejected.getAndSet(0);
+        long readRej = readLimitRejected.getAndSet(0);
+        long nullFrm = nullFramesDropped.getAndSet(0);
         long dcBomb  = decompressionBombs.getAndSet(0);
         long hsRej   = handshakesRejected.getAndSet(0);
         long to      = timeouts.getAndSet(0);
@@ -105,16 +111,16 @@ public final class SecurityMetrics {
         long wrDrop  = writesDropped.getAndSet(0);
         long wmBr    = watermarkBreaches.getAndSet(0);
 
-        long total = connRL + pktRL + pktSR + dcBomb + hsRej + to + anEvt + anDisc + wrDrop + wmBr;
+        long total = connRL + pktSR + readRej + nullFrm + dcBomb + hsRej + to + anEvt + anDisc + wrDrop + wmBr;
         if (total == 0) return; // nothing to report
 
         LOGGER.info("[Krypton Security] Period summary — "
                         + "connRateLimited={}, "
-                        + "pktRateLimited={}, pktSizeRejected={}, "
+                        + "pktSizeRejected={}, readLimitRejected={}, nullFramesDropped={}, "
                         + "decompBombs={}, handshakeRejected={}, timeouts={}, "
                         + "anomalyEvents={}, anomalyDisconnects={}, "
                         + "writesDropped={}, watermarkBreaches={}",
-                connRL, pktRL, pktSR, dcBomb, hsRej, to, anEvt, anDisc, wrDrop, wmBr);
+                connRL, pktSR, readRej, nullFrm, dcBomb, hsRej, to, anEvt, anDisc, wrDrop, wmBr);
     }
 
     /**
@@ -125,8 +131,9 @@ public final class SecurityMetrics {
                 """
                 §6[Krypton Security Metrics]
                 §7Connections rate-limited: §f%d
-                §7Packets rate-limited:     §f%d
                 §7Packets size-rejected:    §f%d
+                §7Read-limit rejected:      §f%d
+                §7Null frames dropped:      §f%d
                 §7Decompression bombs:      §f%d
                 §7Handshakes rejected:      §f%d
                 §7Timeouts:                 §f%d
@@ -135,8 +142,9 @@ public final class SecurityMetrics {
                 §7Writes dropped:           §f%d
                 §7Watermark breaches:       §f%d""",
                 connectionsRateLimited.get(),
-                packetsRateLimited.get(),
                 packetsSizeRejected.get(),
+                readLimitRejected.get(),
+                nullFramesDropped.get(),
                 decompressionBombs.get(),
                 handshakesRejected.get(),
                 timeouts.get(),

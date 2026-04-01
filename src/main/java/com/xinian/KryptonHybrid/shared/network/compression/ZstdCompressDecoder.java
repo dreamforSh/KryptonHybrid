@@ -131,7 +131,7 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         int compressedSize = in.readableBytes();
 
         // --- Decompression bomb guard ---
-        DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize);
+        DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
 
         // --- Fast path: direct input → direct output, zero-copy ---
         if (in.isDirect() && in.nioBufferCount() == 1) {

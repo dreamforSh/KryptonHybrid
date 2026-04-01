@@ -1,6 +1,8 @@
 package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.security.AnomalyDetector;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeTimeoutHandler;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeValidator;
@@ -55,6 +57,7 @@ public class HandshakeValidatorMixin {
         // ── Advance timeout to LOGIN stage ────────────────────────────
         HandshakeTimeoutHandler.advanceStage(
                 this.connection.channel(), HandshakeTimeoutHandler.Stage.LOGIN);
+        PacketControlState.get(this.connection.channel()).setPhase(PacketControlPhase.LOGIN);
     }
 }
 

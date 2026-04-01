@@ -1,6 +1,7 @@
 package com.xinian.KryptonHybrid.shared.network.security;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,14 @@ public final class DecompressionBombGuard {
      */
     public static boolean validate(int compressedSize, int claimedUncompressedSize)
             throws DecompressionBombException {
+        return validate(compressedSize, claimedUncompressedSize, null);
+    }
+
+    /**
+     * Validates decompression limits; channel context is accepted for API compatibility.
+     */
+    public static boolean validate(int compressedSize, int claimedUncompressedSize, Channel channel)
+            throws DecompressionBombException {
 
         if (!KryptonConfig.securityEnabled) return true;
 
@@ -55,14 +64,14 @@ public final class DecompressionBombGuard {
         }
 
 
-        if (compressedSize > 0) {
+        if (compressedSize > 0
+                && compressedSize >= KryptonConfig.securityMinCompressedBytesForRatioCheck) {
             int maxRatio = KryptonConfig.securityMaxCompressionRatio;
-            long ratio = (long) claimedUncompressedSize / compressedSize;
-            if (ratio > maxRatio) {
+            if ((long) claimedUncompressedSize > (long) compressedSize * (long) maxRatio) {
                 SecurityMetrics.INSTANCE.recordDecompressionBomb();
                 String msg = String.format(
-                        "Decompression bomb: ratio %d:1 (compressed=%d, claimed=%d) exceeds max %d:1",
-                        ratio, compressedSize, claimedUncompressedSize, maxRatio);
+                        "Decompression bomb: claimed=%d exceeds ratio limit %d:1 for compressed=%d",
+                        claimedUncompressedSize, maxRatio, compressedSize);
                 LOGGER.warn("[Krypton Security] {}", msg);
                 throw new DecompressionBombException(msg);
             }

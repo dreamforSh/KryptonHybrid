@@ -1,6 +1,8 @@
 package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeTimeoutHandler;
 import net.minecraft.network.Connection;
 import net.minecraft.server.network.ServerLoginPacketListenerImpl;
@@ -30,6 +32,7 @@ public class LoginTimeoutAdvanceMixin {
         if (!KryptonConfig.securityEnabled) return;
         HandshakeTimeoutHandler.advanceStage(
                 this.connection.channel(), HandshakeTimeoutHandler.Stage.PLAY);
+        PacketControlState.get(this.connection.channel()).setPhase(PacketControlPhase.CONFIGURATION);
     }
 }
 
