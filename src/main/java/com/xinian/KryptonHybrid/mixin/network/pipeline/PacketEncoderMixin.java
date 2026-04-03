@@ -2,12 +2,15 @@ package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -35,6 +38,9 @@ public class PacketEncoderMixin {
      */
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
+        if (!kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
+            return;
+        }
         byte[] cached = BroadcastSerializationCache.get(packet);
         if (cached != null) {
             out.writeBytes(cached);
@@ -55,12 +61,23 @@ public class PacketEncoderMixin {
         NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), bytes);
         NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), bytes);
 
-        // Cache the serialized bytes for broadcast reuse
-        if (bytes > 0 && bytes < 65536) { // Only cache reasonably-sized packets
+        // Cache only safe PLAY-phase packets to avoid protocol-phase/id mismatches.
+        if (kryptonfnp$shouldUseBroadcastCache(ctx, packet) && bytes > 0 && bytes < 65536) {
             byte[] serialized = new byte[bytes];
             out.getBytes(out.readerIndex(), serialized);
             BroadcastSerializationCache.put(packet, serialized);
         }
+    }
+
+    @Unique
+    private static boolean kryptonfnp$shouldUseBroadcastCache(ChannelHandlerContext ctx, Packet<?> packet) {
+        if (!KryptonConfig.broadcastCacheEnabled) {
+            return false;
+        }
+        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
+            return false;
+        }
+        return PacketControlState.get(ctx.channel()).getPhase() == PacketControlPhase.PLAY;
     }
 
     @Unique

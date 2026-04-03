@@ -31,6 +31,7 @@
     "network.microopt.ServerEntityMixin",
     "network.microopt.VarIntMixin",
     "network.microopt.VarLongMixin",
+    "network.pipeline.IServerCommonListenerAccessor",
     "network.pipeline.LegacyQueryHandlerMixin",
     "network.pipeline.PacketEncoderMixin",
     "network.pipeline.Varint21FrameDecoderMixin",
