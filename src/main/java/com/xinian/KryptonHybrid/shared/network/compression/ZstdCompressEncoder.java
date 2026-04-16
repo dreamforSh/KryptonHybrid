@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
+import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 
 import java.nio.ByteBuffer;
@@ -103,6 +104,14 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             out.writeBytes(msg);
             NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, out.writerIndex() - startWireIndex);
             return;
+        }
+
+        // --- Adaptive compression level for large packets (e.g. chunk data) ---
+        int adaptiveLargeLevel = KryptonConfig.zstdAdaptiveLargeLevel;
+        if (adaptiveLargeLevel > 0 && uncompressedSize >= KryptonConfig.zstdAdaptiveLargeThreshold) {
+            compressor.setLevel(adaptiveLargeLevel);
+        } else {
+            compressor.setLevel(KryptonConfig.zstdLevel);
         }
 
         int maxOut = ZstdUtil.maxCompressedLength(uncompressedSize);

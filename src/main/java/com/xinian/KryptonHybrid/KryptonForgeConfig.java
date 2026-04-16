@@ -35,6 +35,8 @@ public final class KryptonForgeConfig {
 
     private final ModConfigSpec.EnumValue<CompressionAlgorithm> algorithm;
     private final ModConfigSpec.IntValue                        zstdLevel;
+    private final ModConfigSpec.IntValue                        zstdAdaptiveLargeLevel;
+    private final ModConfigSpec.IntValue                        zstdAdaptiveLargeThreshold;
     private final ModConfigSpec.IntValue                        zstdWorkers;
     private final ModConfigSpec.IntValue                        zstdOverlapLog;
     private final ModConfigSpec.IntValue                        zstdJobSize;
@@ -109,6 +111,25 @@ public final class KryptonForgeConfig {
                         "Range: 1 \u2013 22  |  Default: 3"
                 )
                 .defineInRange("zstd_level", 3, 1, 22);
+
+        zstdAdaptiveLargeLevel = builder
+                .comment(
+                        "Zstd adaptive compression level for large payloads (1 = fastest/largest, 22 = slowest/smallest).",
+                        "Only used when algorithm = ZSTD and payload size exceeds the adaptive threshold.",
+                        "Backed by zstd-jni (native).",
+                        "Default: 11"
+                )
+                .defineInRange("zstd_adaptive_large_level", 11, 1, 22);
+
+        zstdAdaptiveLargeThreshold = builder
+                .comment(
+                        "Payload size (bytes) threshold for activating adaptive compression level.",
+                        "Only used when algorithm = ZSTD. Below this size, the regular compression",
+                        "level (zstd_level) is used. Above this size, the adaptive level",
+                        "(zstd_adaptive_large_level) is used.",
+                        "Default: 8192 (8 KB)"
+                )
+                .defineInRange("zstd_adaptive_large_threshold", 8192, 0, Integer.MAX_VALUE);
 
         builder.pop();
 
@@ -499,6 +520,8 @@ public final class KryptonForgeConfig {
     public void bake() {
         KryptonConfig.compressionAlgorithm = algorithm.get();
         KryptonConfig.zstdLevel            = zstdLevel.get();
+        KryptonConfig.zstdAdaptiveLargeLevel     = zstdAdaptiveLargeLevel.get();
+        KryptonConfig.zstdAdaptiveLargeThreshold = zstdAdaptiveLargeThreshold.get();
         KryptonConfig.zstdWorkers          = zstdWorkers.get();
         KryptonConfig.zstdOverlapLog       = zstdOverlapLog.get();
         KryptonConfig.zstdJobSize          = zstdJobSize.get();

@@ -43,6 +43,24 @@ public final class KryptonConfig {
      */
     public static volatile int zstdLevel = 3;
 
+    /**
+     * Adaptive Zstd compression: use a higher level for large packets (e.g. chunk data)
+     * to get better ratios where CPU budget allows.
+     * Set to 0 to disable adaptive compression (always use {@link #zstdLevel}).
+     * When positive, packets at or above {@link #zstdAdaptiveLargeThreshold} bytes will
+     * be compressed at this level instead of {@link #zstdLevel}.
+     * Default: 0 (disabled).
+     */
+    public static volatile int zstdAdaptiveLargeLevel = 0;
+
+    /**
+     * Byte-size threshold above which the adaptive large-packet compression level
+     * ({@link #zstdAdaptiveLargeLevel}) is used instead of {@link #zstdLevel}.
+     * Only effective when {@link #zstdAdaptiveLargeLevel} &gt; 0.
+     * Default: 8192 (8 KiB — typical chunk packet size).
+     */
+    public static volatile int zstdAdaptiveLargeThreshold = 8192;
+
 
     public static volatile int zstdWorkers = 0;
 

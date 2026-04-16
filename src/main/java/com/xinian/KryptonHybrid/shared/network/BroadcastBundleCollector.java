@@ -114,6 +114,13 @@ public final class BroadcastBundleCollector {
                 continue;
             }
 
+            // Coalesce redundant packets (head-rot, motion, data, block-entity dedup)
+            PacketCoalescer.coalesce(packets);
+
+            if (packets.isEmpty()) {
+                continue;
+            }
+
             if (packets.size() == 1) {
                 player.connection.send(packets.get(0));
             } else {

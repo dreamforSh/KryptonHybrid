@@ -27,6 +27,7 @@
     "network.flushconsolidation.TrackedEntityBundleMixin",
     "network.microopt.FriendlyByteBufMixin",
     "network.microopt.MoveEntityPacketAccessor",
+    "network.microopt.RotateHeadPacketAccessor",
     "network.microopt.ServerEntityDataThrottleMixin",
     "network.microopt.ServerEntityMixin",
     "network.microopt.VarIntMixin",
