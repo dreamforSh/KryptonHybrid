@@ -194,6 +194,10 @@ public final class EntityBundleCollector {
             return;
         }
 
+        int batchPlayers = 0;
+        int emittedBundles = 0;
+        int packetsInBundles = 0;
+
         for (Map.Entry<ServerPlayerConnection, List<Packet<?>>> entry : batch.entrySet()) {
             ServerPlayerConnection conn = entry.getKey();
             List<Packet<?>> packets = entry.getValue();
@@ -204,19 +208,22 @@ public final class EntityBundleCollector {
             if (packets.isEmpty()) {
                 continue;
             }
+            batchPlayers++;
 
             if (packets.size() == 1) {
                 // Single packet: send directly, no bundle overhead
                 conn.send(packets.get(0));
             } else {
+                emittedBundles++;
+                packetsInBundles += packets.size();
                 // Multiple packets: wrap in a BundlePacket
-                // Safe cast: all packets collected during entity tracking are
-                // Packet<ClientGamePacketListener> or Packet<? super ClientGamePacketListener>
                 conn.send(new ClientboundBundlePacket(
                         (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
                 ));
             }
         }
+
+        NetworkTrafficStats.INSTANCE.recordBundleBatch(batchPlayers, emittedBundles, packetsInBundles);
     }
 }
 

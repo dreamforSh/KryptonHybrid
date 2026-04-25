@@ -106,6 +106,10 @@ public final class BroadcastBundleCollector {
             return;
         }
 
+        int batchPlayers = 0;
+        int emittedBundles = 0;
+        int packetsInBundles = 0;
+
         for (Map.Entry<ServerPlayer, List<Packet<?>>> entry : batch.entrySet()) {
             ServerPlayer player = entry.getKey();
             List<Packet<?>> packets = entry.getValue();
@@ -120,15 +124,20 @@ public final class BroadcastBundleCollector {
             if (packets.isEmpty()) {
                 continue;
             }
+            batchPlayers++;
 
             if (packets.size() == 1) {
                 player.connection.send(packets.get(0));
             } else {
+                emittedBundles++;
+                packetsInBundles += packets.size();
                 player.connection.send(new ClientboundBundlePacket(
                         (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
                 ));
             }
         }
+
+        NetworkTrafficStats.INSTANCE.recordBundleBatch(batchPlayers, emittedBundles, packetsInBundles);
     }
 }
 

@@ -3,14 +3,18 @@ package com.xinian.KryptonHybrid.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
+import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
-import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
-import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
+import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 import java.util.Map;
@@ -26,38 +30,36 @@ public final class KryptonStatsCommand {
                 .then(Commands.literal("stats")
                     .then(Commands.literal("show")
                         .executes(KryptonStatsCommand::executeShow))
+                    .then(Commands.literal("gui")
+                        .executes(KryptonStatsCommand::executeGui))
                     .then(Commands.literal("reset")
                         .executes(KryptonStatsCommand::executeReset)))
                 .then(Commands.literal("packets")
                     .then(Commands.literal("bycount")
-                        .executes(ctx -> executePacketsByCount(ctx, 10))
+                        .executes(ctx -> executePacketsList(ctx, 10, true))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executePacketsByCount(ctx, IntegerArgumentType.getInteger(ctx, "limit")))))
+                            .executes(ctx -> executePacketsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), true))))
                     .then(Commands.literal("bybytes")
-                        .executes(ctx -> executePacketsByBytes(ctx, 10))
+                        .executes(ctx -> executePacketsList(ctx, 10, false))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executePacketsByBytes(ctx, IntegerArgumentType.getInteger(ctx, "limit"))))))
+                            .executes(ctx -> executePacketsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false)))))
                 .then(Commands.literal("mods")
                     .then(Commands.literal("bycount")
-                        .executes(ctx -> executeModsByCount(ctx, 10))
+                        .executes(ctx -> executeModsList(ctx, 10, true))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executeModsByCount(ctx, IntegerArgumentType.getInteger(ctx, "limit")))))
+                            .executes(ctx -> executeModsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), true))))
                     .then(Commands.literal("bybytes")
-                        .executes(ctx -> executeModsByBytes(ctx, 10))
+                        .executes(ctx -> executeModsList(ctx, 10, false))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executeModsByBytes(ctx, IntegerArgumentType.getInteger(ctx, "limit"))))))
+                            .executes(ctx -> executeModsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false)))))
                 .then(Commands.literal("security")
                     .then(Commands.literal("status")
                         .executes(KryptonStatsCommand::executeSecurityStatus)))
         );
     }
 
-    private static MutableComponent lbl(String text) {
-        return Component.literal(text).withStyle(ChatFormatting.GRAY);
-    }
-
-    private static MutableComponent val(String text, ChatFormatting color) {
-        return Component.literal(text).withStyle(color);
+    private static MutableComponent t(String key, Object... args) {
+        return Component.translatable(key, args);
     }
 
     private static int executeShow(CommandContext<CommandSourceStack> ctx) {
@@ -77,56 +79,45 @@ public final class KryptonStatsCommand {
         long sendRateWire = bytesSentWire / elapsed;
         long recvRate = bytesReceived / elapsed;
 
-        source.sendSuccess(() ->
-            Component.literal("=== Krypton Hybrid Network Statistics ===")
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.header")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Uptime: "))
-            .append(val(elapsed + "s", ChatFormatting.WHITE))
-            .append(lbl(" | Algorithm: "))
-            .append(val(KryptonConfig.compressionAlgorithm.name(), ChatFormatting.AQUA)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Packets  Sent: "))
-            .append(val(String.format("%,d", packetsSent), ChatFormatting.GREEN))
-            .append(val(String.format(" (%.1f/s)", (double) packetsSent / elapsed), ChatFormatting.DARK_GREEN))
-            .append(lbl(" | Received: "))
-            .append(val(String.format("%,d", packetsReceived), ChatFormatting.YELLOW))
-            .append(val(String.format(" (%.1f/s)", (double) packetsReceived / elapsed), ChatFormatting.GOLD)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Sent Original : "))
-            .append(val(NetworkTrafficStats.formatBytes(bytesSentOrig), ChatFormatting.YELLOW))
-            .append(val(String.format(" (%s/s)", NetworkTrafficStats.formatBytes(sendRateOrig)), ChatFormatting.GOLD)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Sent Wire     : "))
-            .append(val(NetworkTrafficStats.formatBytes(bytesSentWire), ChatFormatting.GREEN))
-            .append(val(String.format(" (%s/s)", NetworkTrafficStats.formatBytes(sendRateWire)), ChatFormatting.DARK_GREEN)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Received      : "))
-            .append(val(NetworkTrafficStats.formatBytes(bytesReceived), ChatFormatting.AQUA))
-            .append(val(String.format(" (%s/s)", NetworkTrafficStats.formatBytes(recvRate)), ChatFormatting.DARK_AQUA)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Compression Ratio: "))
-            .append(val(String.format("%.4f", ratio), ChatFormatting.LIGHT_PURPLE))
-            .append(lbl(" (wire/orig, "))
-            .append(val("lower = better", ChatFormatting.GREEN))
-            .append(lbl(")  |  Bandwidth Saving: "))
-            .append(val(String.format("%.2f%%", savingPct), ChatFormatting.GREEN)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.uptime_algo",
+                String.valueOf(elapsed),
+                KryptonConfig.compressionAlgorithm.name()), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.packets",
+                String.format("%,d", packetsSent),
+                String.format("%.1f", (double) packetsSent / elapsed),
+                String.format("%,d", packetsReceived),
+                String.format("%.1f", (double) packetsReceived / elapsed)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.sent_original",
+                NetworkTrafficStats.formatBytes(bytesSentOrig),
+                NetworkTrafficStats.formatBytes(sendRateOrig)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.sent_wire",
+                NetworkTrafficStats.formatBytes(bytesSentWire),
+                NetworkTrafficStats.formatBytes(sendRateWire)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.received",
+                NetworkTrafficStats.formatBytes(bytesReceived),
+                NetworkTrafficStats.formatBytes(recvRate)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.compression",
+                String.format("%.4f", ratio),
+                String.format("%.2f", savingPct)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.bundles",
+                String.format("%,d", stats.getBundlesEmitted()),
+                String.format("%.2f", stats.getAvgBundleSize()),
+                String.format("%.1f", stats.getBundleHitRate() * 100.0),
+                String.format("%,d", stats.getCoalesceDroppedPackets())), false);
 
         return 1;
     }
 
-    private static int executePacketsByCount(CommandContext<CommandSourceStack> ctx, int limit) {
-        return executePacketsList(ctx, limit, true);
-    }
-
-    private static int executePacketsByBytes(CommandContext<CommandSourceStack> ctx, int limit) {
-        return executePacketsList(ctx, limit, false);
+    private static int executeGui(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        StatsSnapshotPayload snap = StatsSnapshotPayload.current();
+        PacketDistributor.sendToPlayer(player, snap);
+        ctx.getSource().sendSuccess(
+                () -> t("command.krypton_hybrid.stats.gui_sent")
+                        .withStyle(ChatFormatting.GREEN), true);
+        return 1;
     }
 
     private static int executePacketsList(CommandContext<CommandSourceStack> ctx, int limit, boolean byCount) {
@@ -139,14 +130,13 @@ public final class KryptonStatsCommand {
         long totalPackets = stats.getTotalTrackedTypePackets();
         long totalBytes = stats.getTotalTrackedTypeBytes();
         int typeCount = stats.getTrackedTypeCount();
-        String sortLabel = byCount ? "Count" : "Bytes";
+        Component sortLabel = byCount
+                ? Component.translatable("command.krypton_hybrid.sort.count")
+                : Component.translatable("command.krypton_hybrid.sort.bytes");
 
-        source.sendSuccess(() -> Component.empty()
-            .append(Component.literal("=== Krypton Hybrid Packet Types ").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD))
-            .append(val(String.format("(Top %d by ", limit), ChatFormatting.YELLOW))
-            .append(val(sortLabel, ChatFormatting.WHITE))
-            .append(val(String.format(" | %d types tracked)", typeCount), ChatFormatting.YELLOW))
-            .append(Component.literal(" ===").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.packets.header",
+                limit, sortLabel, typeCount)
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
 
         int[] rank = {1};
         for (Map.Entry<String, NetworkTrafficStats.TypeStats> entry : top) {
@@ -155,33 +145,22 @@ public final class KryptonStatsCommand {
             double bytesPct = totalBytes   == 0 ? 0.0 : 100.0 * ts.getTotalBytes() / totalBytes;
             String key = entry.getKey();
             ChatFormatting nameColor = key.startsWith("custom:") ? ChatFormatting.YELLOW : ChatFormatting.AQUA;
-            source.sendSuccess(() -> Component.empty()
-                .append(val(String.format("#%-2d ", rank[0]++), ChatFormatting.DARK_GRAY))
-                .append(val(truncate(key, 44), nameColor))
-                .append(val(String.format("  %,8d", ts.getCount()), ChatFormatting.GREEN))
-                .append(lbl(" pkt"))
-                .append(val(String.format(" (%5.1f%%)", cntPct), ChatFormatting.DARK_GREEN))
-                .append(val(String.format("  %9s", NetworkTrafficStats.formatBytes(ts.getTotalBytes())), ChatFormatting.AQUA))
-                .append(val(String.format(" (%5.1f%%)", bytesPct), ChatFormatting.DARK_AQUA))
-                .append(lbl("  avg "))
-                .append(val(String.format("%.0f B", ts.getAvgBytes()), ChatFormatting.WHITE)), false);
+            int currentRank = rank[0]++;
+            source.sendSuccess(() -> t("command.krypton_hybrid.packets.row",
+                    String.format("%-2d", currentRank),
+                    Component.literal(truncate(key, 44)).withStyle(nameColor),
+                    String.format("%,d", ts.getCount()),
+                    String.format("%.1f", cntPct),
+                    NetworkTrafficStats.formatBytes(ts.getTotalBytes()),
+                    String.format("%.1f", bytesPct),
+                    String.format("%.0f", ts.getAvgBytes())), false);
         }
 
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Total: "))
-            .append(val(String.format("%,d", totalPackets), ChatFormatting.GREEN))
-            .append(lbl(" packets | "))
-            .append(val(NetworkTrafficStats.formatBytes(totalBytes), ChatFormatting.AQUA)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.list.total",
+                String.format("%,d", totalPackets),
+                NetworkTrafficStats.formatBytes(totalBytes)), false);
 
         return 1;
-    }
-
-    private static int executeModsByCount(CommandContext<CommandSourceStack> ctx, int limit) {
-        return executeModsList(ctx, limit, true);
-    }
-
-    private static int executeModsByBytes(CommandContext<CommandSourceStack> ctx, int limit) {
-        return executeModsList(ctx, limit, false);
     }
 
     private static int executeModsList(CommandContext<CommandSourceStack> ctx, int limit, boolean byCount) {
@@ -194,35 +173,32 @@ public final class KryptonStatsCommand {
         long totalPackets = stats.getTotalTrackedTypePackets();
         long totalBytes   = stats.getTotalTrackedTypeBytes();
         int modCount      = stats.getTrackedModCount();
-        String sortLabel  = byCount ? "Count" : "Bytes";
+        Component sortLabel = byCount
+                ? Component.translatable("command.krypton_hybrid.sort.count")
+                : Component.translatable("command.krypton_hybrid.sort.bytes");
 
-        source.sendSuccess(() -> Component.empty()
-            .append(Component.literal("=== Krypton Hybrid Mod Traffic ").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD))
-            .append(val(String.format("(Top %d by ", limit), ChatFormatting.YELLOW))
-            .append(val(sortLabel, ChatFormatting.WHITE))
-            .append(val(String.format(" | %d mods)", modCount), ChatFormatting.YELLOW))
-            .append(Component.literal(" ===").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.mods.header",
+                limit, sortLabel, modCount)
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
 
         int[] rank = {1};
         for (Map.Entry<String, NetworkTrafficStats.TypeStats> entry : top) {
             NetworkTrafficStats.TypeStats ts = entry.getValue();
             double cntPct   = totalPackets == 0 ? 0.0 : 100.0 * ts.getCount()      / totalPackets;
             double bytesPct = totalBytes   == 0 ? 0.0 : 100.0 * ts.getTotalBytes() / totalBytes;
-            source.sendSuccess(() -> Component.empty()
-                .append(val(String.format("#%-2d ", rank[0]++), ChatFormatting.DARK_GRAY))
-                .append(val(String.format("%-20s", entry.getKey()), ChatFormatting.AQUA))
-                .append(val(String.format("  %,8d", ts.getCount()), ChatFormatting.GREEN))
-                .append(lbl(" pkt"))
-                .append(val(String.format(" (%5.1f%%)", cntPct), ChatFormatting.DARK_GREEN))
-                .append(val(String.format("  %9s", NetworkTrafficStats.formatBytes(ts.getTotalBytes())), ChatFormatting.AQUA))
-                .append(val(String.format(" (%5.1f%%)", bytesPct), ChatFormatting.DARK_AQUA)), false);
+            int currentRank = rank[0]++;
+            source.sendSuccess(() -> t("command.krypton_hybrid.mods.row",
+                    String.format("%-2d", currentRank),
+                    String.format("%-20s", entry.getKey()),
+                    String.format("%,d", ts.getCount()),
+                    String.format("%.1f", cntPct),
+                    NetworkTrafficStats.formatBytes(ts.getTotalBytes()),
+                    String.format("%.1f", bytesPct)), false);
         }
 
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Total: "))
-            .append(val(String.format("%,d", totalPackets), ChatFormatting.GREEN))
-            .append(lbl(" packets | "))
-            .append(val(NetworkTrafficStats.formatBytes(totalBytes), ChatFormatting.AQUA)), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.list.total",
+                String.format("%,d", totalPackets),
+                NetworkTrafficStats.formatBytes(totalBytes)), false);
 
         return 1;
     }
@@ -231,66 +207,53 @@ public final class KryptonStatsCommand {
         return s.length() <= maxLen ? s : s.substring(0, maxLen - 2) + "..";
     }
 
-    // ── Security commands ─────────────────────────────────────────────
-
     private static int executeSecurityStatus(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         SecurityMetrics m = SecurityMetrics.INSTANCE;
 
-        source.sendSuccess(() ->
-            Component.literal("=== Krypton Security Status ===")
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.header")
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
 
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Security: "))
-            .append(val(KryptonConfig.securityEnabled ? "ENABLED" : "DISABLED",
-                    KryptonConfig.securityEnabled ? ChatFormatting.GREEN : ChatFormatting.RED)), false);
+        source.sendSuccess(() -> {
+            MutableComponent state = Component.translatable(KryptonConfig.securityEnabled
+                    ? "command.krypton_hybrid.security.state.on"
+                    : "command.krypton_hybrid.security.state.off")
+                    .withStyle(KryptonConfig.securityEnabled
+                            ? ChatFormatting.GREEN : ChatFormatting.RED);
+            return t("command.krypton_hybrid.security.enabled", state);
+        }, false);
 
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Conn rate-limited: "))
-            .append(val(String.valueOf(m.getConnectionsRateLimited()), ChatFormatting.YELLOW)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Pkts size-rejected: "))
-            .append(val(String.valueOf(m.getPacketsSizeRejected()), ChatFormatting.RED)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Read-limit rejected: "))
-            .append(val(String.valueOf(m.getReadLimitRejected()), ChatFormatting.RED))
-            .append(lbl("  |  Null frames dropped: "))
-            .append(val(String.valueOf(m.getNullFramesDropped()), ChatFormatting.YELLOW)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Decomp bombs: "))
-            .append(val(String.valueOf(m.getDecompressionBombs()), ChatFormatting.RED))
-            .append(lbl("  |  Handshakes rejected: "))
-            .append(val(String.valueOf(m.getHandshakesRejected()), ChatFormatting.YELLOW)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Timeouts: "))
-            .append(val(String.valueOf(m.getTimeouts()), ChatFormatting.YELLOW))
-            .append(lbl("  |  Anomaly disconnects: "))
-            .append(val(String.valueOf(m.getAnomalyDisconnects()), ChatFormatting.RED))
-            .append(lbl("  |  Anomaly events: "))
-            .append(val(String.valueOf(m.getAnomalyEvents()), ChatFormatting.YELLOW)), false);
-
-        source.sendSuccess(() -> Component.empty()
-            .append(lbl("Writes dropped: "))
-            .append(val(String.valueOf(m.getWritesDropped()), ChatFormatting.YELLOW))
-            .append(lbl("  |  Watermark breaches: "))
-            .append(val(String.valueOf(m.getWatermarkBreaches()), ChatFormatting.YELLOW)), false);
-
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.conn_rate_limited",
+                String.valueOf(m.getConnectionsRateLimited())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.pkts_size_rejected",
+                String.valueOf(m.getPacketsSizeRejected())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.read_limit_rejected",
+                String.valueOf(m.getReadLimitRejected())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.null_frames_dropped",
+                String.valueOf(m.getNullFramesDropped())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.decomp_bombs",
+                String.valueOf(m.getDecompressionBombs())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.handshakes_rejected",
+                String.valueOf(m.getHandshakesRejected())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.timeouts",
+                String.valueOf(m.getTimeouts())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.anomaly_disconnects",
+                String.valueOf(m.getAnomalyDisconnects())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.anomaly_events",
+                String.valueOf(m.getAnomalyEvents())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.writes_dropped",
+                String.valueOf(m.getWritesDropped())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.watermark_breaches",
+                String.valueOf(m.getWatermarkBreaches())), false);
 
         return 1;
     }
 
     private static int executeReset(CommandContext<CommandSourceStack> ctx) {
         NetworkTrafficStats.INSTANCE.reset();
-        ctx.getSource().sendSuccess(() -> Component.empty()
-            .append(val("Krypton Hybrid", ChatFormatting.AQUA))
-            .append(lbl(" network statistics have been "))
-            .append(val("reset", ChatFormatting.GREEN))
-            .append(lbl(".")), true);
+        ctx.getSource().sendSuccess(() ->
+                t("command.krypton_hybrid.stats.reset")
+                        .withStyle(ChatFormatting.GREEN), true);
         return 1;
     }
 }

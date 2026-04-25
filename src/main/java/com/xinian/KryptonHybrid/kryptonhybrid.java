@@ -6,6 +6,7 @@ import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
 import com.xinian.KryptonHybrid.shared.network.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.KryptonNetworkHandler;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
+import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -72,6 +73,21 @@ public class kryptonhybrid {
                         KryptonNetworkHandler::handleServerHello
                 )
         );
+
+        // Stats GUI snapshot — registered as play-phase, server → client.
+        // Client-only handler is in a separate class to keep dedicated server free
+        // of references to net.minecraft.client.* classes.
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientPayloadRegistration.register(registrar);
+        } else {
+            // Dedicated server: register the type so it can be sent, but with a
+            // no-op handler (handlers are never invoked server-side for playToClient).
+            registrar.playToClient(
+                    StatsSnapshotPayload.TYPE,
+                    StatsSnapshotPayload.STREAM_CODEC,
+                    (payload, ctx) -> { /* no-op on server */ }
+            );
+        }
     }
 }
 

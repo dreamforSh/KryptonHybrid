@@ -33,6 +33,11 @@ public final class NetworkTrafficStats {
     private final AtomicLong bytesSentOriginal = new AtomicLong();
     private final AtomicLong bytesSentWire = new AtomicLong();
     private final AtomicLong bytesReceived = new AtomicLong();
+    // P1-⑤ Bundle/coalesce hit-rate counters
+    private final AtomicLong bundlesEmitted = new AtomicLong();
+    private final AtomicLong bundlePacketsTotal = new AtomicLong();
+    private final AtomicLong bundleBatchesObserved = new AtomicLong();
+    private final AtomicLong coalesceDroppedPackets = new AtomicLong();
     private final ConcurrentHashMap<String, TypeStats> perTypeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perModStats  = new ConcurrentHashMap<>();
     private volatile long startTimeMs = System.currentTimeMillis();
@@ -108,9 +113,49 @@ public final class NetworkTrafficStats {
         bytesSentOriginal.set(0);
         bytesSentWire.set(0);
         bytesReceived.set(0);
+        bundlesEmitted.set(0);
+        bundlePacketsTotal.set(0);
+        bundleBatchesObserved.set(0);
+        coalesceDroppedPackets.set(0);
         perTypeStats.clear();
         perModStats.clear();
         startTimeMs = System.currentTimeMillis();
+    }
+
+    // P1-⑤ bundle/coalesce metric APIs
+
+    /**
+     * Records the result of one batch flush.
+     * @param batchPlayers number of player connections that had ≥1 packet collected
+     *                     (i.e. distinct keys in the batch map)
+     * @param emittedBundles number of those players that ended up actually receiving
+     *                       a {@link net.minecraft.network.protocol.game.ClientboundBundlePacket}
+     *                       (i.e. ≥2 packets after coalescing)
+     * @param packetsInBundles total sub-packet count across all emitted bundles
+     */
+    public void recordBundleBatch(int batchPlayers, int emittedBundles, int packetsInBundles) {
+        if (batchPlayers > 0) bundleBatchesObserved.addAndGet(batchPlayers);
+        if (emittedBundles > 0) bundlesEmitted.addAndGet(emittedBundles);
+        if (packetsInBundles > 0) bundlePacketsTotal.addAndGet(packetsInBundles);
+    }
+
+    public void recordCoalesceDropped(int dropped) {
+        if (dropped > 0) coalesceDroppedPackets.addAndGet(dropped);
+    }
+
+    public long getBundlesEmitted() { return bundlesEmitted.get(); }
+    public long getBundlePacketsTotal() { return bundlePacketsTotal.get(); }
+    public long getBundleBatchesObserved() { return bundleBatchesObserved.get(); }
+    public long getCoalesceDroppedPackets() { return coalesceDroppedPackets.get(); }
+
+    public double getAvgBundleSize() {
+        long b = bundlesEmitted.get();
+        return b == 0 ? 0.0 : (double) bundlePacketsTotal.get() / (double) b;
+    }
+
+    public double getBundleHitRate() {
+        long obs = bundleBatchesObserved.get();
+        return obs == 0 ? 0.0 : (double) bundlesEmitted.get() / (double) obs;
     }
 
     public long getPacketsSent() {

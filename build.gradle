@@ -125,7 +125,7 @@ dependencies {
 
     // Compile/runtime: velocity-native (local jar, hand-managed in META-INF/jarjar)
     implementation(files("maps/Krypton/common/src/main/resources/META-INF/jarjar/velocity-native-3.4.0-SNAPSHOT.jar"))
-
+    implementation fileTree(dir: 'libs', includes: ['*.jar'])
     // Compile/runtime: zstd-jni (copied into META-INF/jarjar by copyZstdJni task above)
     implementation("com.github.luben:zstd-jni:${zstd_jni_version}")
 

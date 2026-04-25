@@ -3,10 +3,13 @@ package com.xinian.KryptonHybrid.shared.network;
 import com.xinian.KryptonHybrid.mixin.network.microopt.MoveEntityPacketAccessor;
 import com.xinian.KryptonHybrid.mixin.network.microopt.RotateHeadPacketAccessor;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.*;
+import net.minecraft.network.syncher.SynchedEntityData;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -61,6 +64,8 @@ public final class PacketCoalescer {
             return;
         }
 
+        final int sizeBefore = packets.size();
+
         // Phase 1: collect entity IDs that have a teleport so we can remove
         // earlier relative moves for those entities.
         IntOpenHashSet teleportedEntities = null;
@@ -69,7 +74,8 @@ public final class PacketCoalescer {
         // Backward iteration: FIRST hit = LAST packet chronologically.
         IntOpenHashSet seenMotion    = new IntOpenHashSet();
         IntOpenHashSet seenTeleport  = new IntOpenHashSet();
-        IntOpenHashSet seenData      = new IntOpenHashSet();
+        // entityId -> index in `packets` of the (later) merged SetEntityData packet
+        Int2IntOpenHashMap dataMergeIdx = null;
         IntOpenHashSet seenHeadRot   = new IntOpenHashSet();
         // Pure-rotation MoveEntity packets: keep only the last per entity.
         IntOpenHashSet seenMoveRot   = new IntOpenHashSet();
@@ -91,18 +97,42 @@ public final class PacketCoalescer {
                     teleportedEntities.add(teleport.getId());
                 }
             } else if (pkt instanceof ClientboundSetEntityDataPacket data) {
-                if (!seenData.add(data.id())) {
-                    packets.remove(i);
+                // Merge multiple metadata updates for the same entity into a single
+                // packet.  Newer (later index) values supersede older for the same
+                // DataValue.id().  Merging (vs. drop-older) preserves any unique
+                // slots updated only in the earlier packet — important when
+                // unrelated metadata fields tick at different rates.
+                int entityId = data.id();
+                if (dataMergeIdx == null) dataMergeIdx = new Int2IntOpenHashMap();
+                int laterIdx = dataMergeIdx.getOrDefault(entityId, -1);
+                if (laterIdx == -1) {
+                    dataMergeIdx.put(entityId, i);
+                } else {
+                    ClientboundSetEntityDataPacket later =
+                        (ClientboundSetEntityDataPacket) packets.get(laterIdx);
+                    List<SynchedEntityData.DataValue<?>> laterItems = later.packedItems();
+                    List<SynchedEntityData.DataValue<?>> earlierItems = data.packedItems();
+                    IntOpenHashSet ids = new IntOpenHashSet(laterItems.size() + earlierItems.size());
+                    List<SynchedEntityData.DataValue<?>> merged =
+                        new ArrayList<>(laterItems.size() + earlierItems.size());
+                    // Later items take priority — add first, mark id seen.
+                    for (SynchedEntityData.DataValue<?> v : laterItems) {
+                        ids.add(v.id());
+                        merged.add(v);
+                    }
+                    // Add earlier items only if their slot wasn't already overridden.
+                    for (SynchedEntityData.DataValue<?> v : earlierItems) {
+                        if (ids.add(v.id())) merged.add(v);
+                    }
+                    packets.set(laterIdx, new ClientboundSetEntityDataPacket(entityId, merged));
+                    packets.remove(i); // i > laterIdx, so laterIdx index unaffected
                 }
             } else if (pkt instanceof ClientboundRotateHeadPacket headRot) {
-                // Multiple head-yaw updates → keep only the last.
                 int entityId = ((RotateHeadPacketAccessor) headRot).krypton$getEntityId();
                 if (!seenHeadRot.add(entityId)) {
                     packets.remove(i);
                 }
             } else if (pkt instanceof ClientboundMoveEntityPacket move) {
-                // Pure rotation-only MoveEntity: rotation is absolute → only last matters.
-                // Position-carrying moves accumulate (they are deltas) → cannot remove.
                 if (move.hasRotation() && !move.hasPosition()) {
                     int entityId = ((MoveEntityPacketAccessor) move).krypton$getEntityId();
                     if (!seenMoveRot.add(entityId)) {
@@ -110,7 +140,6 @@ public final class PacketCoalescer {
                     }
                 }
             } else if (pkt instanceof ClientboundBlockEntityDataPacket blockEntity) {
-                // Multiple block-entity NBT updates for same pos → keep only the last.
                 long posLong = blockEntity.getPos().asLong();
                 if (seenBlockEntity == null) seenBlockEntity = new HashMap<>();
                 if (seenBlockEntity.put(posLong, Boolean.TRUE) != null) {
@@ -131,6 +160,12 @@ public final class PacketCoalescer {
                     }
                 }
             }
+        }
+
+        // Update aggregated coalescing stats
+        int dropped = sizeBefore - packets.size();
+        if (dropped > 0) {
+            NetworkTrafficStats.INSTANCE.recordCoalesceDropped(dropped);
         }
     }
 }
