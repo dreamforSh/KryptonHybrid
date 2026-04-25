@@ -39,9 +39,17 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         FriendlyByteBuf bb = new FriendlyByteBuf(in);
         int claimedUncompressedSize = bb.readVarInt();
         if (claimedUncompressedSize == 0) {
+            // Vanilla MC's CompressionDecoder does NOT validate the uncompressed
+            // pass-through branch against the threshold; only the compressed branch
+            // is validated.  We mirror that to avoid spurious disconnects when the
+            // peer encoded a packet just under its (possibly higher) threshold while
+            // we have a lower local threshold (race during setupCompression update,
+            // BroadcastCompressedCache replay, etc.).  The hard cap below is the
+            // real safety net.
             int actualUncompressedSize = in.readableBytes();
-            checkState(actualUncompressedSize < threshold, "Actual uncompressed size %s is greater than"
-                    + " threshold %s", actualUncompressedSize, threshold);
+            checkState(actualUncompressedSize <= UNCOMPRESSED_CAP,
+                    "Uncompressed pass-through size %s exceeds hard cap of %s",
+                    actualUncompressedSize, UNCOMPRESSED_CAP);
             out.add(in.retain());
             return;
         }

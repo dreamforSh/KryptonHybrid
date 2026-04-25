@@ -1,5 +1,6 @@
 package com.xinian.KryptonHybrid.shared.network;
 
+import com.xinian.KryptonHybrid.mixin.network.pipeline.PacketEncoderMixin;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 
 import java.util.IdentityHashMap;
@@ -41,6 +42,29 @@ public final class BroadcastSerializationCache {
 
     private static final ThreadLocal<IdentityHashMap<Object, byte[]>> CACHE =
             ThreadLocal.withInitial(IdentityHashMap::new);
+
+    /**
+     * Hand-off slot used to pass the {@link net.minecraft.network.protocol.Packet}
+     * instance currently being encoded from
+     * {@link com.xinian.KryptonHybrid.mixin.network.pipeline.PacketEncoderMixin}
+     * down to {@link com.xinian.KryptonHybrid.shared.network.compression.ZstdCompressEncoder}.
+     *
+     * <p>Both run synchronously on the same Netty I/O thread inside the call
+     * chain initiated by {@code MessageToByteEncoder.write()}, so a thread-local
+     * is sufficient.  The compressor consumes &amp; clears the slot on entry to
+     * avoid stale references between unrelated encodes.</p>
+     */
+    private static final ThreadLocal<Object> CURRENT_PACKET = new ThreadLocal<>();
+
+    public static void setCurrentPacket(Object packet) {
+        CURRENT_PACKET.set(packet);
+    }
+
+    public static Object pollCurrentPacket() {
+        Object p = CURRENT_PACKET.get();
+        if (p != null) CURRENT_PACKET.remove();
+        return p;
+    }
 
     private BroadcastSerializationCache() {}
 

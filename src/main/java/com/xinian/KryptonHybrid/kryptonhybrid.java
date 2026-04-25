@@ -32,6 +32,10 @@ public class kryptonhybrid {
 
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
 
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientController.init(modEventBus);
+        }
+
         KryptonSharedBootstrap.run(FMLEnvironment.dist.isClient());
     }
 

@@ -110,10 +110,24 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
 
         if (claimedUncompressedSize == 0) {
             // --- Uncompressed packet: pass through ---
+            //
+            // NOTE: Vanilla Minecraft (1.21.1 net.minecraft.network.CompressionDecoder)
+            // intentionally performs NO threshold check on the uncompressed branch — only
+            // compressed packets are validated against the threshold.  We deliberately
+            // mirror that behaviour to remain interoperable with peers whose effective
+            // encoding threshold differs from ours, e.g.:
+            //   • the threshold was lowered mid-session (setupCompression) and an
+            //     in-flight packet was already encoded under the previous threshold;
+            //   • BroadcastCompressedCache replays wire bytes captured at an earlier
+            //     threshold;
+            //   • a peer using a slightly different compression threshold negotiation.
+            //
+            // We still enforce the absolute hard cap to prevent abuse via giant
+            // uncompressed payloads (which the upstream frame decoder also limits).
             int actualUncompressedSize = in.readableBytes();
-            checkState(actualUncompressedSize < threshold,
-                    "Actual uncompressed size %s is greater than threshold %s",
-                    actualUncompressedSize, threshold);
+            checkState(actualUncompressedSize <= UNCOMPRESSED_CAP,
+                    "Uncompressed pass-through size %s exceeds hard cap of %s",
+                    actualUncompressedSize, UNCOMPRESSED_CAP);
             out.add(in.retain());
             return;
         }

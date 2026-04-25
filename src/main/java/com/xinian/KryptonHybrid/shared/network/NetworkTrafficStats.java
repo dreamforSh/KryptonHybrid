@@ -77,6 +77,12 @@ public final class NetworkTrafficStats {
             .collect(Collectors.toList());
     }
 
+    public Map.Entry<String, TypeStats> getTopModByBytes() {
+        return perModStats.entrySet().stream()
+                .max((a, b) -> Long.compare(a.getValue().getTotalBytes(), b.getValue().getTotalBytes()))
+                .orElse(null);
+    }
+
     public int getTrackedModCount() {
         return perModStats.size();
     }
@@ -95,6 +101,12 @@ public final class NetworkTrafficStats {
             .collect(Collectors.toList());
     }
 
+    public Map.Entry<String, TypeStats> getTopTypeByBytes() {
+        return perTypeStats.entrySet().stream()
+                .max((a, b) -> Long.compare(a.getValue().getTotalBytes(), b.getValue().getTotalBytes()))
+                .orElse(null);
+    }
+
     public int getTrackedTypeCount() {
         return perTypeStats.size();
     }
@@ -105,6 +117,14 @@ public final class NetworkTrafficStats {
 
     public long getTotalTrackedTypeBytes() {
         return perTypeStats.values().stream().mapToLong(TypeStats::getTotalBytes).sum();
+    }
+
+    public long getTotalTrackedModPackets() {
+        return perModStats.values().stream().mapToLong(TypeStats::getCount).sum();
+    }
+
+    public long getTotalTrackedModBytes() {
+        return perModStats.values().stream().mapToLong(TypeStats::getTotalBytes).sum();
     }
 
     public void reset() {
@@ -156,6 +176,25 @@ public final class NetworkTrafficStats {
     public double getBundleHitRate() {
         long obs = bundleBatchesObserved.get();
         return obs == 0 ? 0.0 : (double) bundlesEmitted.get() / (double) obs;
+    }
+
+    public long getSavedBytes() {
+        return Math.max(0L, bytesSentOriginal.get() - bytesSentWire.get());
+    }
+
+    public double getAverageOriginalPacketBytes() {
+        long sent = packetsSent.get();
+        return sent == 0 ? 0.0 : (double) bytesSentOriginal.get() / (double) sent;
+    }
+
+    public double getAverageWirePacketBytes() {
+        long sent = packetsSent.get();
+        return sent == 0 ? 0.0 : (double) bytesSentWire.get() / (double) sent;
+    }
+
+    public double getAverageReceivedPacketBytes() {
+        long received = packetsReceived.get();
+        return received == 0 ? 0.0 : (double) bytesReceived.get() / (double) received;
     }
 
     public long getPacketsSent() {

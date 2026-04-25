@@ -205,6 +205,9 @@ public final class EntityBundleCollector {
             // P1-③ Packet coalescing: deduplicate redundant packets before sending
             PacketCoalescer.coalesce(packets);
 
+            // P1 Motion/Teleport delta filter: drop visually identical updates
+            MotionDeltaCache.filter(conn, packets);
+
             if (packets.isEmpty()) {
                 continue;
             }

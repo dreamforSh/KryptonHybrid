@@ -121,6 +121,9 @@ public final class BroadcastBundleCollector {
             // Coalesce redundant packets (head-rot, motion, data, block-entity dedup)
             PacketCoalescer.coalesce(packets);
 
+            // P1 Motion/Teleport delta filter (uses player.connection)
+            MotionDeltaCache.filter(player.connection, packets);
+
             if (packets.isEmpty()) {
                 continue;
             }

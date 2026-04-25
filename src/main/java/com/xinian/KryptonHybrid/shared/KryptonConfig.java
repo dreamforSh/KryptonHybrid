@@ -223,6 +223,84 @@ public final class KryptonConfig {
      */
     public static volatile boolean broadcastCacheEnabled = true;
 
+    // --- P0 Bundle Forced Compression ---
+
+    /**
+     * If {@code true}, sub-packets emitted between {@code BundleDelimiterPacket}
+     * frames are forcibly compressed even when their individual size is below
+     * {@link #zstdLevel}-paired compression threshold.  Combined with a loaded
+     * Zstd dictionary, this typically reduces total bundle wire size by 10–25%
+     * because small sub-packets gain access to the shared dictionary entropy.
+     * The compressor falls back to raw output if compressed size would exceed
+     * uncompressed size, so enabling this never causes wire growth.
+     * Default: {@code true}.
+     */
+    public static volatile boolean bundleAlwaysCompress = true;
+
+    /**
+     * Minimum uncompressed size (bytes) of a bundle sub-packet before forced
+     * compression engages.  Packets smaller than this are still skipped to avoid
+     * the marginal CPU cost of tiny-payload Zstd calls.  Default: {@code 24}.
+     */
+    public static volatile int bundleCompressMinBytes = 24;
+
+    // --- P0 Compressed-bytes Broadcast Cache ---
+
+    /**
+     * Per-Netty-thread cache of the <em>post-Zstd</em> compressed bytes for
+     * broadcast packets (currently chunk and light update packets).  When the
+     * same Packet instance is sent to N players sharing one I/O thread, the
+     * compressor only runs once instead of N times.  Independent of and in
+     * addition to {@link #broadcastCacheEnabled} (which caches the raw serialized
+     * bytes, before compression).
+     * Default: {@code true}.
+     */
+    public static volatile boolean broadcastCompressedCacheEnabled = true;
+
+    // --- P1 Cross-tick micro-batch flush ---
+
+    /**
+     * If {@code true}, the entity-tick auto-flush re-enable is replaced by a
+     * deferred channel flush scheduled on the connection's Netty event loop.
+     * This coalesces flushes between the entity-tick and the immediately
+     * following block-update broadcast tick into a single syscall, at the cost
+     * of {@link #microBatchFlushDelayMs} ms of additional outgoing latency.
+     * Default: {@code false} (opt-in for high-population servers).
+     */
+    public static volatile boolean microBatchFlushEnabled = false;
+
+    /**
+     * Deferred-flush delay in milliseconds used when {@link #microBatchFlushEnabled}
+     * is true.  Range 1–20 ms; recommended 5 ms.  Default: {@code 5}.
+     */
+    public static volatile int microBatchFlushDelayMs = 5;
+
+    // --- P1 Motion / Teleport delta filter ---
+
+    /**
+     * If {@code true}, redundant {@code ClientboundSetEntityMotionPacket} and
+     * {@code ClientboundTeleportEntityPacket} updates whose components have not
+     * changed by more than {@link #motionDeltaThreshold} encoded units (motion)
+     * or {@link #teleportDeltaSquared} squared blocks (teleport) since the last
+     * sent value for that entity → that player are dropped.  Significantly cuts
+     * projectile/dropped-item packet count.
+     * Default: {@code true}.
+     */
+    public static volatile boolean motionDeltaEnabled = true;
+
+    /**
+     * Encoded-unit per-axis tolerance for motion delta filtering.  The vanilla
+     * encoding is {@code (int)(velocity * 8000)} so 80 units ≈ 0.01 blocks/tick.
+     * Default: {@code 40} (≈ 0.005 b/t — visually imperceptible).
+     */
+    public static volatile int motionDeltaThreshold = 40;
+
+    /**
+     * Squared-distance tolerance (blocks²) for teleport delta filtering.  Default:
+     * {@code 1.0E-4} (0.01-block radius).
+     */
+    public static volatile double teleportDeltaSquared = 1.0E-4;
+
     // --- P1-③ Packet Coalescing ---
 
     /**

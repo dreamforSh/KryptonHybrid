@@ -3,7 +3,9 @@ package com.xinian.KryptonHybrid.mixin.network.flushconsolidation;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.EntityBundleCollector;
+import com.xinian.KryptonHybrid.shared.network.MicroBatchFlusher;
 import com.xinian.KryptonHybrid.shared.network.util.AutoFlushUtil;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -108,9 +110,19 @@ public abstract class ChunkMapFlushMixin {
         // Step 5: Close bundle window — BundlePackets are written but not flushed
         EntityBundleCollector.endBatchAndFlush();
 
-        // Step 6: Re-enable auto-flush — triggers single kernel flush
-        for (ServerPlayer player : this.level.players()) {
-            AutoFlushUtil.setAutoFlush(player, true);
+        // Step 6: Either schedule a deferred (cross-tick coalescing) flush or
+        // re-enable auto-flush immediately.
+        if (KryptonConfig.microBatchFlushEnabled) {
+            // Keep autoFlush=false; the scheduled task will set it back to true
+            // and call channel.flush() once after the configured delay window.
+            for (ServerPlayer player : this.level.players()) {
+                MicroBatchFlusher.scheduleFlush(player);
+            }
+        } else {
+            // Re-enable auto-flush — triggers single kernel flush
+            for (ServerPlayer player : this.level.players()) {
+                AutoFlushUtil.setAutoFlush(player, true);
+            }
         }
     }
 }

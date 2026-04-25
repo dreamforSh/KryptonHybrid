@@ -8,6 +8,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
+import com.xinian.KryptonHybrid.shared.network.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
@@ -35,9 +36,21 @@ public class PacketEncoderMixin {
      * HEAD inject: check the broadcast serialization cache before encoding.
      * If the same Packet instance was already encoded on this thread, write the
      * cached bytes directly and cancel the vanilla encode.
+     *
+     * <p>Also publishes the current Packet reference into a thread-local slot so
+     * that the downstream {@code ZstdCompressEncoder} (called synchronously when
+     * the encoded {@code out} buffer is propagated via {@code ctx.write}) can
+     * consult the post-compression cache and detect bundle-sub-packet scope.</p>
      */
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
+        // Track bundle-delimiter scope for downstream forced-compression decisions.
+        if (packet instanceof net.minecraft.network.protocol.BundleDelimiterPacket<?>) {
+            BundleEncodeContext.onDelimiter();
+        }
+        // Hand the Packet reference to ZstdCompressEncoder via thread-local.
+        BroadcastSerializationCache.setCurrentPacket(packet);
+
         if (!kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
             return;
         }

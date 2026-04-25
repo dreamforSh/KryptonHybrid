@@ -114,9 +114,6 @@ public final class KryptonStatsCommand {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         StatsSnapshotPayload snap = StatsSnapshotPayload.current();
         PacketDistributor.sendToPlayer(player, snap);
-        ctx.getSource().sendSuccess(
-                () -> t("command.krypton_hybrid.stats.gui_sent")
-                        .withStyle(ChatFormatting.GREEN), true);
         return 1;
     }
 

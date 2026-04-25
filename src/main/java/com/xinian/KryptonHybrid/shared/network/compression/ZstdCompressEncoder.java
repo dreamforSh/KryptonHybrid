@@ -6,7 +6,11 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.BroadcastCompressedCache;
+import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
+import com.xinian.KryptonHybrid.shared.network.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import net.minecraft.network.protocol.Packet;
 
 import java.nio.ByteBuffer;
 
@@ -98,11 +102,38 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         int uncompressedSize = msg.readableBytes();
         int startWireIndex = out.writerIndex();
 
+        // ── Pull the (optional) Packet reference handed off by PacketEncoderMixin ──
+        Object currentPacket = BroadcastSerializationCache.pollCurrentPacket();
+        Packet<?> packet = (currentPacket instanceof Packet<?> p) ? p : null;
+
+        // ── P0 Compressed-bytes broadcast cache: short-circuit if the same Packet
+        //    instance was already compressed earlier on this Netty I/O thread. ──
+        if (packet != null && BroadcastCompressedCache.isCacheable(packet)) {
+            byte[] cachedWire = BroadcastCompressedCache.get(packet);
+            if (cachedWire != null) {
+                out.writeBytes(cachedWire);
+                msg.skipBytes(uncompressedSize);
+                NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, cachedWire.length);
+                return;
+            }
+        }
+
+        // ── P0 Bundle forced-compression: lower the threshold for sub-packets
+        //    bracketed by BundleDelimiterPacket frames. ──
+        int effectiveThreshold = threshold;
+        boolean bundleForced = false;
+        if (KryptonConfig.bundleAlwaysCompress && BundleEncodeContext.isInBundle()) {
+            effectiveThreshold = Math.max(1, KryptonConfig.bundleCompressMinBytes);
+            bundleForced = true;
+        }
+
         // --- Below threshold: pass through uncompressed ---
-        if (uncompressedSize < threshold) {
+        if (uncompressedSize < effectiveThreshold) {
             wrappedOut.writeVarInt(0);
             out.writeBytes(msg);
-            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, out.writerIndex() - startWireIndex);
+            int wire = out.writerIndex() - startWireIndex;
+            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+            kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
             return;
         }
 
@@ -116,8 +147,10 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
         int maxOut = ZstdUtil.maxCompressedLength(uncompressedSize);
 
-        // Write the uncompressed-size header first
+        // Reserve space for the uncompressed-size VarInt header.
+        int headerStart = out.writerIndex();
         wrappedOut.writeVarInt(uncompressedSize);
+        int headerLen = out.writerIndex() - headerStart;
 
         // --- Fast path: both buffers are direct → zero-copy native compression ---
         if (msg.isDirect() && msg.nioBufferCount() == 1
@@ -133,11 +166,25 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                     nioOut, 0, maxOut,
                     nioIn,  0, uncompressedSize);
 
+            // Bundle-forced safety: rewind and write raw if compression inflated.
+            if (bundleForced && (headerLen + compressedSize) >= (1 + uncompressedSize)) {
+                out.writerIndex(startWireIndex);
+                wrappedOut.writeVarInt(0);
+                out.writeBytes(msg, msg.readerIndex(), uncompressedSize);
+                msg.skipBytes(uncompressedSize);
+                int wire = out.writerIndex() - startWireIndex;
+                NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+                kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+                return;
+            }
+
             // Advance Netty indices
             msg.skipBytes(uncompressedSize);
             out.writerIndex(out.writerIndex() + compressedSize);
 
-            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, out.writerIndex() - startWireIndex);
+            int wire = out.writerIndex() - startWireIndex;
+            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+            kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
             return;
         }
 
@@ -155,8 +202,32 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                 scratchOut, 0, maxOut,
                 scratchIn, 0, uncompressedSize);
 
-        out.writeBytes(scratchOut, 0, compressedSize);
-        NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, out.writerIndex() - startWireIndex);
+        if (bundleForced && (headerLen + compressedSize) >= (1 + uncompressedSize)) {
+            out.writerIndex(startWireIndex);
+            wrappedOut.writeVarInt(0);
+            out.writeBytes(scratchIn, 0, uncompressedSize);
+        } else {
+            out.writeBytes(scratchOut, 0, compressedSize);
+        }
+
+        int wire = out.writerIndex() - startWireIndex;
+        NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+        kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+    }
+
+    /**
+     * Stores the just-emitted compressed wire bytes into
+     * {@link BroadcastCompressedCache} when the packet is one of the cacheable
+     * broadcast types and the wire payload is small enough to be worth caching
+     * (i.e. won't exceed our per-thread memory budget).
+     */
+    private static void kryptonMaybeCacheCompressed(Packet<?> packet, ByteBuf out, int startWireIndex, int wireLen) {
+        if (packet == null) return;
+        if (!BroadcastCompressedCache.isCacheable(packet)) return;
+        if (wireLen <= 0 || wireLen > 65536) return;
+        byte[] copy = new byte[wireLen];
+        out.getBytes(startWireIndex, copy);
+        BroadcastCompressedCache.put(packet, copy);
     }
 
     /**
