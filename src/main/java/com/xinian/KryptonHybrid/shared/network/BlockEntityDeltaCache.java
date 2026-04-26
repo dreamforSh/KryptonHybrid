@@ -1,9 +1,11 @@
 package com.xinian.KryptonHybrid.shared.network;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.Set;
 
@@ -126,9 +128,8 @@ public final class BlockEntityDeltaCache {
             return null; // shouldn't happen (equals check above), but be safe
         }
 
-        // If delta is not smaller than full tag, prefer full tag (no marker)
-        // Rough size comparison: delta has 2 extra marker keys overhead
-        if (delta.getAllKeys().size() >= newTag.getAllKeys().size()) {
+        // If delta is not smaller on the actual NBT wire representation, prefer full tag.
+        if (tagWireSize(delta) >= tagWireSize(newTag)) {
             return newTag;
         }
 
@@ -154,6 +155,16 @@ public final class BlockEntityDeltaCache {
             cache.removeFirst();
         }
         cache.put(packedPos, tag);
+    }
+
+    private static int tagWireSize(CompoundTag tag) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            buf.writeNbt(tag);
+            return buf.readableBytes();
+        } finally {
+            buf.release();
+        }
     }
 }
 

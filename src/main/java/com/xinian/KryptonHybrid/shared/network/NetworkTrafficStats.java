@@ -40,6 +40,8 @@ public final class NetworkTrafficStats {
     private final AtomicLong coalesceDroppedPackets = new AtomicLong();
     private final ConcurrentHashMap<String, TypeStats> perTypeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perModStats  = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TypeStats> perTypeWireStats = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TypeStats> perModWireStats  = new ConcurrentHashMap<>();
     private volatile long startTimeMs = System.currentTimeMillis();
 
     private NetworkTrafficStats() {}
@@ -63,6 +65,11 @@ public final class NetworkTrafficStats {
         perModStats.computeIfAbsent(modId, k -> new TypeStats()).record(bytes);
     }
 
+    public void recordPacketWire(String key, String modId, int wireBytes) {
+        perTypeWireStats.computeIfAbsent(key, k -> new TypeStats()).record(wireBytes);
+        perModWireStats.computeIfAbsent(modId, k -> new TypeStats()).record(wireBytes);
+    }
+
     public List<Map.Entry<String, TypeStats>> getTopModsByCount(int limit) {
         return perModStats.entrySet().stream()
             .sorted((a, b) -> Long.compare(b.getValue().getCount(), a.getValue().getCount()))
@@ -72,6 +79,13 @@ public final class NetworkTrafficStats {
 
     public List<Map.Entry<String, TypeStats>> getTopModsByBytes(int limit) {
         return perModStats.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue().getTotalBytes(), a.getValue().getTotalBytes()))
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    public List<Map.Entry<String, TypeStats>> getTopModsByWireBytes(int limit) {
+        return perModWireStats.entrySet().stream()
             .sorted((a, b) -> Long.compare(b.getValue().getTotalBytes(), a.getValue().getTotalBytes()))
             .limit(limit)
             .collect(Collectors.toList());
@@ -96,6 +110,13 @@ public final class NetworkTrafficStats {
 
     public List<Map.Entry<String, TypeStats>> getTopByBytes(int limit) {
         return perTypeStats.entrySet().stream()
+            .sorted((a, b) -> Long.compare(b.getValue().getTotalBytes(), a.getValue().getTotalBytes()))
+            .limit(limit)
+            .collect(Collectors.toList());
+    }
+
+    public List<Map.Entry<String, TypeStats>> getTopByWireBytes(int limit) {
+        return perTypeWireStats.entrySet().stream()
             .sorted((a, b) -> Long.compare(b.getValue().getTotalBytes(), a.getValue().getTotalBytes()))
             .limit(limit)
             .collect(Collectors.toList());
@@ -127,6 +148,22 @@ public final class NetworkTrafficStats {
         return perModStats.values().stream().mapToLong(TypeStats::getTotalBytes).sum();
     }
 
+    public long getTotalTrackedTypeWirePackets() {
+        return perTypeWireStats.values().stream().mapToLong(TypeStats::getCount).sum();
+    }
+
+    public long getTotalTrackedTypeWireBytes() {
+        return perTypeWireStats.values().stream().mapToLong(TypeStats::getTotalBytes).sum();
+    }
+
+    public long getTotalTrackedModWirePackets() {
+        return perModWireStats.values().stream().mapToLong(TypeStats::getCount).sum();
+    }
+
+    public long getTotalTrackedModWireBytes() {
+        return perModWireStats.values().stream().mapToLong(TypeStats::getTotalBytes).sum();
+    }
+
     public void reset() {
         packetsSent.set(0);
         packetsReceived.set(0);
@@ -139,6 +176,8 @@ public final class NetworkTrafficStats {
         coalesceDroppedPackets.set(0);
         perTypeStats.clear();
         perModStats.clear();
+        perTypeWireStats.clear();
+        perModWireStats.clear();
         startTimeMs = System.currentTimeMillis();
     }
 
@@ -240,4 +279,3 @@ public final class NetworkTrafficStats {
         return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 }
-

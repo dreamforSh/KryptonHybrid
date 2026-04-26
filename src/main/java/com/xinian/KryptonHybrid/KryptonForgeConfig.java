@@ -81,6 +81,14 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.IntValue                        dccDistance;
     private final ModConfigSpec.IntValue                        dccTimeoutSeconds;
     private final ModConfigSpec.BooleanValue                    broadcastCacheEnabled;
+    private final ModConfigSpec.BooleanValue                    bundleAlwaysCompress;
+    private final ModConfigSpec.IntValue                        bundleCompressMinBytes;
+    private final ModConfigSpec.BooleanValue                    broadcastCompressedCacheEnabled;
+    private final ModConfigSpec.BooleanValue                    microBatchFlushEnabled;
+    private final ModConfigSpec.IntValue                        microBatchFlushDelayMs;
+    private final ModConfigSpec.BooleanValue                    motionDeltaEnabled;
+    private final ModConfigSpec.IntValue                        motionDeltaThreshold;
+    private final ModConfigSpec.DoubleValue                     teleportDeltaSquared;
     private final ModConfigSpec.BooleanValue                    packetCoalescingEnabled;
     private final ModConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
     private final ModConfigSpec.EnumValue<ProxyMode>            proxyMode;
@@ -445,6 +453,86 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
+                "Bundle Forced Compression",
+                "Lowers the compression threshold for sub-packets inside vanilla bundle",
+                "frames. The encoder still falls back to raw output when compression",
+                "would increase wire size."
+        ).push("bundle_compression");
+
+        bundleAlwaysCompress = builder
+                .comment(
+                        "Force compression for bundle sub-packets above min_bytes.",
+                        "Best when Zstd dictionary compression is enabled.",
+                        "Default: true"
+                )
+                .define("always_compress", true);
+
+        bundleCompressMinBytes = builder
+                .comment(
+                        "Minimum uncompressed bundle sub-packet size before forced compression.",
+                        "Range: 1 - 4096  |  Default: 24"
+                )
+                .defineInRange("min_bytes", 24, 1, 4096);
+
+        builder.pop();
+
+        builder.comment(
+                "Broadcast Compressed Cache",
+                "Caches post-compression wire bytes for large broadcast packets such as",
+                "chunk and light updates. This mainly saves CPU, and also keeps repeated",
+                "broadcast output stable across recipients on the same Netty thread."
+        ).push("broadcast_compressed_cache");
+
+        broadcastCompressedCacheEnabled = builder
+                .comment("Enable compressed-byte broadcast caching.", "Default: true")
+                .define("enabled", true);
+
+        builder.pop();
+
+        builder.comment(
+                "Cross-tick Micro-batch Flush",
+                "Defers the end-of-tick flush by a few milliseconds to coalesce writes",
+                "from adjacent broadcast phases. This reduces syscall pressure and may",
+                "improve compression grouping at the cost of small added latency."
+        ).push("micro_batch_flush");
+
+        microBatchFlushEnabled = builder
+                .comment("Enable deferred micro-batch flush.", "Default: false")
+                .define("enabled", false);
+
+        microBatchFlushDelayMs = builder
+                .comment("Deferred flush delay in milliseconds.", "Range: 1 - 20  |  Default: 5")
+                .defineInRange("delay_ms", 5, 1, 20);
+
+        builder.pop();
+
+        builder.comment(
+                "Motion and Teleport Delta Filter",
+                "Drops redundant motion and teleport packets when the encoded delta is",
+                "below a visual threshold for the same entity/player pair."
+        ).push("motion_delta");
+
+        motionDeltaEnabled = builder
+                .comment("Enable motion and teleport delta filtering.", "Default: true")
+                .define("enabled", true);
+
+        motionDeltaThreshold = builder
+                .comment(
+                        "Encoded motion-unit threshold per axis. Vanilla motion is velocity * 8000.",
+                        "Range: 0 - 8000  |  Default: 40"
+                )
+                .defineInRange("motion_threshold", 40, 0, 8000);
+
+        teleportDeltaSquared = builder
+                .comment(
+                        "Squared block-distance threshold for redundant teleport packets.",
+                        "Range: 0.0 - 1.0  |  Default: 1.0E-4"
+                )
+                .defineInRange("teleport_delta_squared", 1.0E-4, 0.0, 1.0);
+
+        builder.pop();
+
+        builder.comment(
                 "Packet Coalescing",
                 "Deduplicates redundant entity update packets within each tick's",
                 "bundle before sending.  Removes superseded velocity, teleport,",
@@ -566,6 +654,14 @@ public final class KryptonForgeConfig {
         KryptonConfig.dccDistance          = dccDistance.get();
         KryptonConfig.dccTimeoutSeconds    = dccTimeoutSeconds.get();
         KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
+        KryptonConfig.bundleAlwaysCompress     = bundleAlwaysCompress.get();
+        KryptonConfig.bundleCompressMinBytes   = bundleCompressMinBytes.get();
+        KryptonConfig.broadcastCompressedCacheEnabled = broadcastCompressedCacheEnabled.get();
+        KryptonConfig.microBatchFlushEnabled   = microBatchFlushEnabled.get();
+        KryptonConfig.microBatchFlushDelayMs   = microBatchFlushDelayMs.get();
+        KryptonConfig.motionDeltaEnabled       = motionDeltaEnabled.get();
+        KryptonConfig.motionDeltaThreshold     = motionDeltaThreshold.get();
+        KryptonConfig.teleportDeltaSquared     = teleportDeltaSquared.get();
         KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
         KryptonConfig.proxyMode                = proxyMode.get();

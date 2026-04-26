@@ -42,7 +42,11 @@ public final class KryptonStatsCommand {
                     .then(Commands.literal("bybytes")
                         .executes(ctx -> executePacketsList(ctx, 10, false))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executePacketsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false)))))
+                            .executes(ctx -> executePacketsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false))))
+                    .then(Commands.literal("bywire")
+                        .executes(ctx -> executePacketsWireList(ctx, 10))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
+                            .executes(ctx -> executePacketsWireList(ctx, IntegerArgumentType.getInteger(ctx, "limit"))))))
                 .then(Commands.literal("mods")
                     .then(Commands.literal("bycount")
                         .executes(ctx -> executeModsList(ctx, 10, true))
@@ -51,7 +55,11 @@ public final class KryptonStatsCommand {
                     .then(Commands.literal("bybytes")
                         .executes(ctx -> executeModsList(ctx, 10, false))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
-                            .executes(ctx -> executeModsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false)))))
+                            .executes(ctx -> executeModsList(ctx, IntegerArgumentType.getInteger(ctx, "limit"), false))))
+                    .then(Commands.literal("bywire")
+                        .executes(ctx -> executeModsWireList(ctx, 10))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 50))
+                            .executes(ctx -> executeModsWireList(ctx, IntegerArgumentType.getInteger(ctx, "limit"))))))
                 .then(Commands.literal("security")
                     .then(Commands.literal("status")
                         .executes(KryptonStatsCommand::executeSecurityStatus)))
@@ -160,6 +168,43 @@ public final class KryptonStatsCommand {
         return 1;
     }
 
+    private static int executePacketsWireList(CommandContext<CommandSourceStack> ctx, int limit) {
+        CommandSourceStack source = ctx.getSource();
+        NetworkTrafficStats stats = NetworkTrafficStats.INSTANCE;
+
+        List<Map.Entry<String, NetworkTrafficStats.TypeStats>> top = stats.getTopByWireBytes(limit);
+        long totalPackets = stats.getTotalTrackedTypeWirePackets();
+        long totalBytes = stats.getTotalTrackedTypeWireBytes();
+
+        source.sendSuccess(() -> Component.literal("Krypton packets by compressed wire bytes (top " + limit + ")")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+
+        int[] rank = {1};
+        for (Map.Entry<String, NetworkTrafficStats.TypeStats> entry : top) {
+            NetworkTrafficStats.TypeStats ts = entry.getValue();
+            double bytesPct = totalBytes == 0 ? 0.0 : 100.0 * ts.getTotalBytes() / totalBytes;
+            String key = entry.getKey();
+            ChatFormatting nameColor = key.startsWith("custom:") ? ChatFormatting.YELLOW : ChatFormatting.AQUA;
+            int currentRank = rank[0]++;
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "%-2d %s count=%,d wire=%s %.1f%% avg=%s",
+                    currentRank,
+                    truncate(key, 44),
+                    ts.getCount(),
+                    NetworkTrafficStats.formatBytes(ts.getTotalBytes()),
+                    bytesPct,
+                    NetworkTrafficStats.formatBytes((long) ts.getAvgBytes())
+            )).withStyle(nameColor), false);
+        }
+
+        source.sendSuccess(() -> Component.literal("Total: "
+                + String.format("%,d", totalPackets)
+                + " packets, "
+                + NetworkTrafficStats.formatBytes(totalBytes)), false);
+
+        return 1;
+    }
+
     private static int executeModsList(CommandContext<CommandSourceStack> ctx, int limit, boolean byCount) {
         CommandSourceStack source = ctx.getSource();
         NetworkTrafficStats stats = NetworkTrafficStats.INSTANCE;
@@ -196,6 +241,40 @@ public final class KryptonStatsCommand {
         source.sendSuccess(() -> t("command.krypton_hybrid.list.total",
                 String.format("%,d", totalPackets),
                 NetworkTrafficStats.formatBytes(totalBytes)), false);
+
+        return 1;
+    }
+
+    private static int executeModsWireList(CommandContext<CommandSourceStack> ctx, int limit) {
+        CommandSourceStack source = ctx.getSource();
+        NetworkTrafficStats stats = NetworkTrafficStats.INSTANCE;
+
+        List<Map.Entry<String, NetworkTrafficStats.TypeStats>> top = stats.getTopModsByWireBytes(limit);
+        long totalPackets = stats.getTotalTrackedModWirePackets();
+        long totalBytes = stats.getTotalTrackedModWireBytes();
+
+        source.sendSuccess(() -> Component.literal("Krypton mods by compressed wire bytes (top " + limit + ")")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+
+        int[] rank = {1};
+        for (Map.Entry<String, NetworkTrafficStats.TypeStats> entry : top) {
+            NetworkTrafficStats.TypeStats ts = entry.getValue();
+            double bytesPct = totalBytes == 0 ? 0.0 : 100.0 * ts.getTotalBytes() / totalBytes;
+            int currentRank = rank[0]++;
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "%-2d %-20s count=%,d wire=%s %.1f%%",
+                    currentRank,
+                    truncate(entry.getKey(), 20),
+                    ts.getCount(),
+                    NetworkTrafficStats.formatBytes(ts.getTotalBytes()),
+                    bytesPct
+            )).withStyle(ChatFormatting.AQUA), false);
+        }
+
+        source.sendSuccess(() -> Component.literal("Total: "
+                + String.format("%,d", totalPackets)
+                + " packets, "
+                + NetworkTrafficStats.formatBytes(totalBytes)), false);
 
         return 1;
     }

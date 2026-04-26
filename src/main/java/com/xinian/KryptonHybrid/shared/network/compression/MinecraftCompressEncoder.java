@@ -6,6 +6,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.resources.ResourceLocation;
+import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 
 public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
@@ -23,6 +28,8 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
     FriendlyByteBuf wrappedBuf = new FriendlyByteBuf(out);
     int uncompressed = msg.readableBytes();
     int startWireIndex = out.writerIndex();
+    Object currentPacket = BroadcastSerializationCache.pollCurrentPacket();
+    Packet<?> packet = (currentPacket instanceof Packet<?> p) ? p : null;
     if (uncompressed < threshold) {
       // Under the threshold, there is nothing to do.
       wrappedBuf.writeVarInt(0);
@@ -36,7 +43,9 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         compatibleIn.release();
       }
     }
-    NetworkTrafficStats.INSTANCE.recordEncode(uncompressed, out.writerIndex() - startWireIndex);
+    int wire = out.writerIndex() - startWireIndex;
+    NetworkTrafficStats.INSTANCE.recordEncode(uncompressed, wire);
+    kryptonRecordWirePacket(packet, wire);
   }
 
   @Override
@@ -61,6 +70,39 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
   public void setThreshold(int threshold) {
     this.threshold = threshold;
+  }
+
+  private static void kryptonRecordWirePacket(Packet<?> packet, int wireBytes) {
+    if (packet == null || wireBytes <= 0) return;
+    NetworkTrafficStats.INSTANCE.recordPacketWire(
+        kryptonResolveKey(packet),
+        kryptonResolveModId(packet),
+        wireBytes);
+  }
+
+  private static String kryptonResolveKey(Packet<?> packet) {
+    if (packet instanceof ClientboundCustomPayloadPacket cp) {
+      ResourceLocation id = cp.payload().type().id();
+      return "custom:" + id.getNamespace() + "/" + id.getPath();
+    }
+    if (packet instanceof ServerboundCustomPayloadPacket sp) {
+      ResourceLocation id = sp.payload().type().id();
+      return "custom:" + id.getNamespace() + "/" + id.getPath();
+    }
+    return packet.getClass().getSimpleName();
+  }
+
+  private static String kryptonResolveModId(Packet<?> packet) {
+    if (packet instanceof ClientboundCustomPayloadPacket cp) {
+      return cp.payload().type().id().getNamespace();
+    }
+    if (packet instanceof ServerboundCustomPayloadPacket sp) {
+      return sp.payload().type().id().getNamespace();
+    }
+    String pkg = packet.getClass().getPackageName();
+    if (pkg.startsWith("net.minecraft.")) return "minecraft";
+    String[] parts = pkg.split("\\.", 4);
+    return parts.length >= 3 ? parts[2] : "unknown";
   }
 }
 

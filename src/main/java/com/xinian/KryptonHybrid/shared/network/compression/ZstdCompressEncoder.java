@@ -5,12 +5,15 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.BroadcastCompressedCache;
 import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 import net.minecraft.network.protocol.Packet;
+import net.minecraft.resources.ResourceLocation;
 
 import java.nio.ByteBuffer;
 
@@ -114,6 +117,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                 out.writeBytes(cachedWire);
                 msg.skipBytes(uncompressedSize);
                 NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, cachedWire.length);
+                kryptonRecordWirePacket(packet, cachedWire.length);
                 return;
             }
         }
@@ -121,10 +125,8 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         // ── P0 Bundle forced-compression: lower the threshold for sub-packets
         //    bracketed by BundleDelimiterPacket frames. ──
         int effectiveThreshold = threshold;
-        boolean bundleForced = false;
         if (KryptonConfig.bundleAlwaysCompress && BundleEncodeContext.isInBundle()) {
             effectiveThreshold = Math.max(1, KryptonConfig.bundleCompressMinBytes);
-            bundleForced = true;
         }
 
         // --- Below threshold: pass through uncompressed ---
@@ -133,17 +135,13 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             out.writeBytes(msg);
             int wire = out.writerIndex() - startWireIndex;
             NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+            kryptonRecordWirePacket(packet, wire);
             kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
             return;
         }
 
-        // --- Adaptive compression level for large packets (e.g. chunk data) ---
-        int adaptiveLargeLevel = KryptonConfig.zstdAdaptiveLargeLevel;
-        if (adaptiveLargeLevel > 0 && uncompressedSize >= KryptonConfig.zstdAdaptiveLargeThreshold) {
-            compressor.setLevel(adaptiveLargeLevel);
-        } else {
-            compressor.setLevel(KryptonConfig.zstdLevel);
-        }
+        // --- Packet-aware compression level selection ---
+        compressor.setLevel(kryptonSelectCompressionLevel(packet, uncompressedSize));
 
         int maxOut = ZstdUtil.maxCompressedLength(uncompressedSize);
 
@@ -166,14 +164,16 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                     nioOut, 0, maxOut,
                     nioIn,  0, uncompressedSize);
 
-            // Bundle-forced safety: rewind and write raw if compression inflated.
-            if (bundleForced && (headerLen + compressedSize) >= (1 + uncompressedSize)) {
+            // Safety: rewind and write raw if compression inflated. The decoder accepts
+            // VarInt(0) pass-through packets even when they exceed the negotiated threshold.
+            if ((headerLen + compressedSize) >= (1 + uncompressedSize)) {
                 out.writerIndex(startWireIndex);
                 wrappedOut.writeVarInt(0);
                 out.writeBytes(msg, msg.readerIndex(), uncompressedSize);
                 msg.skipBytes(uncompressedSize);
                 int wire = out.writerIndex() - startWireIndex;
                 NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+                kryptonRecordWirePacket(packet, wire);
                 kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
                 return;
             }
@@ -184,6 +184,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
             int wire = out.writerIndex() - startWireIndex;
             NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+            kryptonRecordWirePacket(packet, wire);
             kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
             return;
         }
@@ -202,7 +203,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                 scratchOut, 0, maxOut,
                 scratchIn, 0, uncompressedSize);
 
-        if (bundleForced && (headerLen + compressedSize) >= (1 + uncompressedSize)) {
+        if ((headerLen + compressedSize) >= (1 + uncompressedSize)) {
             out.writerIndex(startWireIndex);
             wrappedOut.writeVarInt(0);
             out.writeBytes(scratchIn, 0, uncompressedSize);
@@ -212,7 +213,97 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
         int wire = out.writerIndex() - startWireIndex;
         NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
+        kryptonRecordWirePacket(packet, wire);
         kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+    }
+
+    private static int kryptonSelectCompressionLevel(Packet<?> packet, int uncompressedSize) {
+        int baseLevel = clampLevel(KryptonConfig.zstdLevel);
+        int adaptiveLevel = KryptonConfig.zstdAdaptiveLargeLevel;
+        int adaptiveThreshold = Math.max(0, KryptonConfig.zstdAdaptiveLargeThreshold);
+
+        if (packet != null) {
+            String packetName = packet.getClass().getSimpleName();
+
+            if (kryptonIsCustomPayload(packetName)) {
+                // Mod payloads are often already compact or self-compressed. Keep latency
+                // predictable and rely on the post-compression raw fallback for bandwidth.
+                return Math.min(baseLevel, 3);
+            }
+
+            if (kryptonIsChunkOrLightPacket(packetName)) {
+                if (adaptiveLevel > 0 && uncompressedSize >= adaptiveThreshold) {
+                    return clampLevel(adaptiveLevel);
+                }
+                return baseLevel;
+            }
+
+            if (kryptonIsBulkSyncPacket(packetName)
+                    && adaptiveLevel > 0
+                    && uncompressedSize >= Math.max(1024, adaptiveThreshold / 2)) {
+                return clampLevel(adaptiveLevel);
+            }
+        }
+
+        if (adaptiveLevel > 0 && uncompressedSize >= adaptiveThreshold) {
+            return clampLevel(adaptiveLevel);
+        }
+        return baseLevel;
+    }
+
+    private static boolean kryptonIsChunkOrLightPacket(String packetName) {
+        return packetName.contains("LevelChunk")
+                || packetName.contains("LightUpdate");
+    }
+
+    private static boolean kryptonIsBulkSyncPacket(String packetName) {
+        return packetName.contains("UpdateRecipes")
+                || packetName.contains("Recipe")
+                || packetName.contains("RegistryData")
+                || packetName.contains("UpdateTags")
+                || packetName.contains("Login")
+                || packetName.contains("Configuration");
+    }
+
+    private static boolean kryptonIsCustomPayload(String packetName) {
+        return packetName.endsWith("CustomPayloadPacket");
+    }
+
+    private static int clampLevel(int level) {
+        return Math.max(1, Math.min(22, level));
+    }
+
+    private static void kryptonRecordWirePacket(Packet<?> packet, int wireBytes) {
+        if (packet == null || wireBytes <= 0) return;
+        NetworkTrafficStats.INSTANCE.recordPacketWire(
+                kryptonResolveKey(packet),
+                kryptonResolveModId(packet),
+                wireBytes);
+    }
+
+    private static String kryptonResolveKey(Packet<?> packet) {
+        if (packet instanceof ClientboundCustomPayloadPacket cp) {
+            ResourceLocation id = cp.payload().type().id();
+            return "custom:" + id.getNamespace() + "/" + id.getPath();
+        }
+        if (packet instanceof ServerboundCustomPayloadPacket sp) {
+            ResourceLocation id = sp.payload().type().id();
+            return "custom:" + id.getNamespace() + "/" + id.getPath();
+        }
+        return packet.getClass().getSimpleName();
+    }
+
+    private static String kryptonResolveModId(Packet<?> packet) {
+        if (packet instanceof ClientboundCustomPayloadPacket cp) {
+            return cp.payload().type().id().getNamespace();
+        }
+        if (packet instanceof ServerboundCustomPayloadPacket sp) {
+            return sp.payload().type().id().getNamespace();
+        }
+        String pkg = packet.getClass().getPackageName();
+        if (pkg.startsWith("net.minecraft.")) return "minecraft";
+        String[] parts = pkg.split("\\.", 4);
+        return parts.length >= 3 ? parts[2] : "unknown";
     }
 
     /**

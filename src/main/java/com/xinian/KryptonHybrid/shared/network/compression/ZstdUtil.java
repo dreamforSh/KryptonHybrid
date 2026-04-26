@@ -105,6 +105,7 @@ public final class ZstdUtil {
         dictionaryBytes = null;
         dictionaryId = 0L;
         dictionaryError = null;
+        dictionaryMetadata = null;
 
         if (!AVAILABLE || !KryptonConfig.zstdDictEnabled) {
             return;
@@ -129,15 +130,19 @@ public final class ZstdUtil {
                 return;
             }
 
-            long dictId = Zstd.getDictIdFromDict(bytes);
-            dictionaryBytes = bytes;
+            ZstdDictionaryMetadata metadata = ZstdDictionaryMetadata.tryParse(bytes);
+            byte[] plainDictionary = metadata != null ? metadata.getPlainDictionary() : bytes;
+            long dictId = metadata != null ? metadata.getDictID() : Zstd.getDictIdFromDict(plainDictionary);
+            dictionaryBytes = plainDictionary;
             dictionaryId = dictId;
+            dictionaryMetadata = metadata;
 
             KryptonSharedBootstrap.LOGGER.info(
-                    "Loaded Zstd dictionary: {} ({} bytes, id={})",
+                    "Loaded Zstd dictionary: {} ({} bytes, id={}, metadata={})",
                     path,
-                    bytes.length,
-                    dictId);
+                    plainDictionary.length,
+                    dictId,
+                    metadata != null ? "wrapped" : "plain");
         } catch (IOException ioe) {
             dictionaryError = "failed reading dictionary: " + ioe.getMessage();
         } catch (Throwable t) {
@@ -333,4 +338,3 @@ public final class ZstdUtil {
         return result;
     }
 }
-

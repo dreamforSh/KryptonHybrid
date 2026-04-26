@@ -18,7 +18,7 @@ import java.util.Set;
  *   Per entry:
  *     UTF-8  key              (FriendlyByteBuf.writeUtf / readUtf)
  *     VarInt long_count
- *     long[] XOR-delta-coded  (first long raw, subsequent = raw[i] ^ raw[i-1])
+ *     VarLong[] ZigZag(XOR-delta)  (first long raw, subsequent = raw[i] ^ raw[i-1])
  * </pre>
  * <p>XOR-delta exploits the spatial correlation of heightmap columns (adjacent columns
  * have similar heights), producing many near-zero longs that compress significantly
@@ -74,10 +74,11 @@ public final class ChunkDataCodec {
             buf.writeUtf(key);
             long[] data = heightmaps.getLongArray(key);
             buf.writeVarInt(data.length);
-            // XOR-delta encode: delta[0] = raw[0], delta[i] = raw[i] ^ raw[i-1]
+            // XOR-delta + ZigZag VarLong: correlated heightmaps usually produce
+            // small deltas, so avoid paying a fixed 8 bytes per long.
             long prev = 0;
             for (long v : data) {
-                buf.writeLong(v ^ prev);
+                buf.writeVarLong(zigZag(v ^ prev));
                 prev = v;
             }
         }
@@ -99,13 +100,21 @@ public final class ChunkDataCodec {
             // XOR-delta decode: raw[0] = delta[0], raw[i] = delta[i] ^ raw[i-1]
             long prev = 0;
             for (int j = 0; j < len; j++) {
-                long delta = buf.readLong();
+                long delta = unZigZag(buf.readVarLong());
                 data[j] = delta ^ prev;
                 prev = data[j];
             }
             tag.put(key, new LongArrayTag(data));
         }
         return tag;
+    }
+
+    private static long zigZag(long value) {
+        return (value << 1) ^ (value >> 63);
+    }
+
+    private static long unZigZag(long value) {
+        return (value >>> 1) ^ -(value & 1L);
     }
 
     // ======================================================================
