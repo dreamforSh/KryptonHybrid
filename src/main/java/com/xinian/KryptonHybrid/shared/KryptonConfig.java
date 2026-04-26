@@ -182,6 +182,30 @@ public final class KryptonConfig {
     /** Max decoded byte[] length allowed through FriendlyByteBuf readByteArray(int). */
     public static volatile int securityMaxByteArrayBytes = 2 * 1024 * 1024;
 
+    /** Caches serialized Server List Ping / MOTD responses for a short window. */
+    public static volatile boolean motdCacheEnabled = true;
+
+    /** Time-to-live for cached MOTD/status responses. 0 disables caching. */
+    public static volatile int motdCacheTtlMs = 3000;
+
+    /** Enables independent per-IP throttling for modern STATUS ping handshakes. */
+    public static volatile boolean securityStatusPingGuardEnabled = true;
+
+    /** Sustained status ping handshakes per second per remote IP. */
+    public static volatile int securityStatusPingRatePerSecond = 4;
+
+    /** Burst capacity for status ping handshakes per remote IP. */
+    public static volatile int securityStatusPingBurstLimit = 8;
+
+    /** Seconds an address remains quarantined after repeated status ping abuse. */
+    public static volatile int securityStatusPingQuarantineSeconds = 15;
+
+    /** Closes excessive STATUS connections without sending a disconnect packet. */
+    public static volatile boolean securityStatusPingSilentDrop = true;
+
+    /** Applies the same scan guard to pre-1.7 legacy ping packets. */
+    public static volatile boolean securityLegacyQueryGuardEnabled = true;
+
     public static volatile int securityMinProtocolVersion = 3;
     public static volatile int securityMaxProtocolVersion = 1100;
     public static volatile int securityMaxHandshakeAddressLength = 255;

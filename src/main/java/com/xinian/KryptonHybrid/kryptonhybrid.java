@@ -7,6 +7,7 @@ import com.xinian.KryptonHybrid.shared.network.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.KryptonNetworkHandler;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
+import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -42,6 +43,7 @@ public class kryptonhybrid {
     private void onConfigLoad(ModConfigEvent.Loading event) {
         if (event.getConfig().getSpec() == KryptonForgeConfig.SPEC) {
             KryptonForgeConfig.INSTANCE.bake();
+            MotdCache.invalidate();
             ZstdUtil.reloadDictionary();
         }
     }
@@ -49,6 +51,7 @@ public class kryptonhybrid {
     private void onConfigReload(ModConfigEvent.Reloading event) {
         if (event.getConfig().getSpec() == KryptonForgeConfig.SPEC) {
             KryptonForgeConfig.INSTANCE.bake();
+            MotdCache.invalidate();
             ZstdUtil.reloadDictionary();
             KryptonSharedBootstrap.LOGGER.info(
                     "Krypton config reloaded - compression algorithm: {}, zstd status: {}",

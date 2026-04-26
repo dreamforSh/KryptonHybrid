@@ -72,6 +72,14 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.IntValue                        securityMaxMapEntries;
     private final ModConfigSpec.IntValue                        securityMaxCountedElements;
     private final ModConfigSpec.IntValue                        securityMaxByteArrayBytes;
+    private final ModConfigSpec.BooleanValue                    motdCacheEnabled;
+    private final ModConfigSpec.IntValue                        motdCacheTtlMs;
+    private final ModConfigSpec.BooleanValue                    securityStatusPingGuardEnabled;
+    private final ModConfigSpec.IntValue                        securityStatusPingRatePerSecond;
+    private final ModConfigSpec.IntValue                        securityStatusPingBurstLimit;
+    private final ModConfigSpec.IntValue                        securityStatusPingQuarantineSeconds;
+    private final ModConfigSpec.BooleanValue                    securityStatusPingSilentDrop;
+    private final ModConfigSpec.BooleanValue                    securityLegacyQueryGuardEnabled;
     private final ModConfigSpec.IntValue                        securityMinProtocolVersion;
     private final ModConfigSpec.IntValue                        securityMaxProtocolVersion;
     private final ModConfigSpec.IntValue                        securityMaxHandshakeAddressLength;
@@ -379,6 +387,67 @@ public final class KryptonForgeConfig {
                 .defineInRange("counted_loop_max", 16_384, 1, Integer.MAX_VALUE);
         securityMaxByteArrayBytes = builder
                 .defineInRange("byte_array_max_bytes", 2 * 1024 * 1024, 1, Integer.MAX_VALUE);
+
+        builder.pop();
+
+        builder.comment(
+                "MOTD / Server List Ping cache and scan protection.",
+                "These settings target server-list scanners and repeated status pings.",
+                "They do not affect normal LOGIN connections."
+        ).push("status_ping_guard");
+
+        motdCacheEnabled = builder
+                .comment(
+                        "Cache serialized MOTD/status responses for a short time.",
+                        "This avoids rebuilding the JSON response for every server-list ping.",
+                        "Default: true"
+                )
+                .define("motd_cache_enabled", true);
+
+        motdCacheTtlMs = builder
+                .comment(
+                        "MOTD/status cache time-to-live in milliseconds.",
+                        "Higher values reduce CPU during scans but make player count stale longer.",
+                        "0 disables caching even when motd_cache_enabled is true.",
+                        "Range: 0 - 60000  |  Default: 3000"
+                )
+                .defineInRange("motd_cache_ttl_ms", 3000, 0, 60000);
+
+        securityStatusPingGuardEnabled = builder
+                .comment(
+                        "Enable per-IP rate limiting for modern STATUS ping handshakes.",
+                        "This is separate from LOGIN rate limiting so server-list scans can be",
+                        "throttled without blocking real players as aggressively.",
+                        "Default: true"
+                )
+                .define("enabled", true);
+
+        securityStatusPingRatePerSecond = builder
+                .comment("Sustained STATUS pings per second per IP.", "Range: 1 - 1000  |  Default: 4")
+                .defineInRange("rate", 4, 1, 1000);
+
+        securityStatusPingBurstLimit = builder
+                .comment("Burst capacity for STATUS pings per IP.", "Range: 1 - 5000  |  Default: 8")
+                .defineInRange("burst", 8, 1, 5000);
+
+        securityStatusPingQuarantineSeconds = builder
+                .comment("Temporary quarantine after repeated STATUS ping abuse.", "Range: 0 - 3600  |  Default: 15")
+                .defineInRange("quarantine_seconds", 15, 0, 3600);
+
+        securityStatusPingSilentDrop = builder
+                .comment(
+                        "Silently close excessive STATUS ping connections.",
+                        "When true, scanners receive no status JSON and no disconnect message.",
+                        "Default: true"
+                )
+                .define("silent_drop", true);
+
+        securityLegacyQueryGuardEnabled = builder
+                .comment(
+                        "Apply the same scan guard to legacy pre-1.7 ping packets.",
+                        "Default: true"
+                )
+                .define("legacy_query_guard_enabled", true);
 
         builder.pop();
 
@@ -700,6 +769,14 @@ public final class KryptonForgeConfig {
         KryptonConfig.securityMaxMapEntries = securityMaxMapEntries.get();
         KryptonConfig.securityMaxCountedElements = securityMaxCountedElements.get();
         KryptonConfig.securityMaxByteArrayBytes = securityMaxByteArrayBytes.get();
+        KryptonConfig.motdCacheEnabled = motdCacheEnabled.get();
+        KryptonConfig.motdCacheTtlMs = motdCacheTtlMs.get();
+        KryptonConfig.securityStatusPingGuardEnabled = securityStatusPingGuardEnabled.get();
+        KryptonConfig.securityStatusPingRatePerSecond = securityStatusPingRatePerSecond.get();
+        KryptonConfig.securityStatusPingBurstLimit = securityStatusPingBurstLimit.get();
+        KryptonConfig.securityStatusPingQuarantineSeconds = securityStatusPingQuarantineSeconds.get();
+        KryptonConfig.securityStatusPingSilentDrop = securityStatusPingSilentDrop.get();
+        KryptonConfig.securityLegacyQueryGuardEnabled = securityLegacyQueryGuardEnabled.get();
         KryptonConfig.securityMinProtocolVersion = securityMinProtocolVersion.get();
         KryptonConfig.securityMaxProtocolVersion = securityMaxProtocolVersion.get();
         KryptonConfig.securityMaxHandshakeAddressLength = securityMaxHandshakeAddressLength.get();

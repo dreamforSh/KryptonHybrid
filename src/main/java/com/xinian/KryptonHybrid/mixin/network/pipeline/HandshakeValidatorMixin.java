@@ -6,8 +6,10 @@ import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.security.AnomalyDetector;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeTimeoutHandler;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeValidator;
+import com.xinian.KryptonHybrid.shared.network.security.StatusRequestGuard;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.handshake.ClientIntent;
 import net.minecraft.network.protocol.handshake.ClientIntentionPacket;
 import net.minecraft.server.network.ServerHandshakePacketListenerImpl;
 import org.spongepowered.asm.mixin.Final;
@@ -51,6 +53,21 @@ public class HandshakeValidatorMixin {
             this.connection.disconnect(Component.literal(
                     "Connection refused: " + result.reason()));
             ci.cancel();
+            return;
+        }
+
+        if (packet.intention() == ClientIntent.STATUS
+                && !StatusRequestGuard.allowStatusPing(this.connection.channel(), packet.hostName())) {
+            if (KryptonConfig.securityStatusPingSilentDrop) {
+                this.connection.channel().close();
+            } else {
+                this.connection.disconnect(Component.translatable("disconnect.ignoring_status_request"));
+            }
+            ci.cancel();
+            return;
+        }
+
+        if (packet.intention() == ClientIntent.STATUS) {
             return;
         }
 

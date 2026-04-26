@@ -9,6 +9,7 @@ import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdSampleRecorder;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
+import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
 import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -319,6 +320,12 @@ public final class KryptonStatsCommand {
                 String.valueOf(m.getDecompressionBombs())), false);
         source.sendSuccess(() -> t("command.krypton_hybrid.security.handshakes_rejected",
                 String.valueOf(m.getHandshakesRejected())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.status_requests_dropped",
+                String.valueOf(m.getStatusRequestsDropped())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.legacy_queries_dropped",
+                String.valueOf(m.getLegacyQueriesDropped())), false);
+        source.sendSuccess(() -> t("command.krypton_hybrid.security.motd_cache",
+                MotdCache.statusDescription()), false);
         source.sendSuccess(() -> t("command.krypton_hybrid.security.timeouts",
                 String.valueOf(m.getTimeouts())), false);
         source.sendSuccess(() -> t("command.krypton_hybrid.security.anomaly_disconnects",

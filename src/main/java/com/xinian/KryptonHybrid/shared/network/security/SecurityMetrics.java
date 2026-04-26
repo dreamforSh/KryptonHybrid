@@ -45,6 +45,12 @@ public final class SecurityMetrics {
     /** Handshakes rejected by the protocol/address validator. */
     private final AtomicLong handshakesRejected = new AtomicLong();
 
+    /** Modern STATUS ping requests dropped by the scan guard. */
+    private final AtomicLong statusRequestsDropped = new AtomicLong();
+
+    /** Legacy pre-1.7 ping requests dropped by the scan guard. */
+    private final AtomicLong legacyQueriesDropped = new AtomicLong();
+
     /** Connections closed by the stage-aware read timeout handler. */
     private final AtomicLong timeouts = new AtomicLong();
 
@@ -74,6 +80,8 @@ public final class SecurityMetrics {
     public void recordNullFrameDropped()         { nullFramesDropped.incrementAndGet(); }
     public void recordDecompressionBomb()         { decompressionBombs.incrementAndGet(); }
     public void recordHandshakeRejected()        { handshakesRejected.incrementAndGet(); }
+    public void recordStatusRequestDropped()      { statusRequestsDropped.incrementAndGet(); }
+    public void recordLegacyQueryDropped()        { legacyQueriesDropped.incrementAndGet(); }
     public void recordTimeout()                  { timeouts.incrementAndGet(); }
     public void recordAnomalyEvent()             { anomalyEvents.incrementAndGet(); }
     public void recordAnomalyDisconnect()        { anomalyDisconnects.incrementAndGet(); }
@@ -88,6 +96,8 @@ public final class SecurityMetrics {
     public long getNullFramesDropped()       { return nullFramesDropped.get(); }
     public long getDecompressionBombs()      { return decompressionBombs.get(); }
     public long getHandshakesRejected()      { return handshakesRejected.get(); }
+    public long getStatusRequestsDropped()   { return statusRequestsDropped.get(); }
+    public long getLegacyQueriesDropped()    { return legacyQueriesDropped.get(); }
     public long getTimeouts()                { return timeouts.get(); }
     public long getAnomalyEvents()           { return anomalyEvents.get(); }
     public long getAnomalyDisconnects()      { return anomalyDisconnects.get(); }
@@ -105,22 +115,24 @@ public final class SecurityMetrics {
         long nullFrm = nullFramesDropped.getAndSet(0);
         long dcBomb  = decompressionBombs.getAndSet(0);
         long hsRej   = handshakesRejected.getAndSet(0);
+        long statusDrop = statusRequestsDropped.getAndSet(0);
+        long legacyDrop = legacyQueriesDropped.getAndSet(0);
         long to      = timeouts.getAndSet(0);
         long anEvt   = anomalyEvents.getAndSet(0);
         long anDisc  = anomalyDisconnects.getAndSet(0);
         long wrDrop  = writesDropped.getAndSet(0);
         long wmBr    = watermarkBreaches.getAndSet(0);
 
-        long total = connRL + pktSR + readRej + nullFrm + dcBomb + hsRej + to + anEvt + anDisc + wrDrop + wmBr;
+        long total = connRL + pktSR + readRej + nullFrm + dcBomb + hsRej + statusDrop + legacyDrop + to + anEvt + anDisc + wrDrop + wmBr;
         if (total == 0) return; // nothing to report
 
         LOGGER.info("[Krypton Security] Period summary — "
                         + "connRateLimited={}, "
                         + "pktSizeRejected={}, readLimitRejected={}, nullFramesDropped={}, "
-                        + "decompBombs={}, handshakeRejected={}, timeouts={}, "
+                        + "decompBombs={}, handshakeRejected={}, statusDropped={}, legacyDropped={}, timeouts={}, "
                         + "anomalyEvents={}, anomalyDisconnects={}, "
                         + "writesDropped={}, watermarkBreaches={}",
-                connRL, pktSR, readRej, nullFrm, dcBomb, hsRej, to, anEvt, anDisc, wrDrop, wmBr);
+                connRL, pktSR, readRej, nullFrm, dcBomb, hsRej, statusDrop, legacyDrop, to, anEvt, anDisc, wrDrop, wmBr);
     }
 
     /**
@@ -136,6 +148,8 @@ public final class SecurityMetrics {
                 §7Null frames dropped:      §f%d
                 §7Decompression bombs:      §f%d
                 §7Handshakes rejected:      §f%d
+                §7Status pings dropped:     §f%d
+                §7Legacy pings dropped:     §f%d
                 §7Timeouts:                 §f%d
                 §7Anomaly events:           §f%d
                 §7Anomaly disconnects:      §f%d
@@ -147,6 +161,8 @@ public final class SecurityMetrics {
                 nullFramesDropped.get(),
                 decompressionBombs.get(),
                 handshakesRejected.get(),
+                statusRequestsDropped.get(),
+                legacyQueriesDropped.get(),
                 timeouts.get(),
                 anomalyEvents.get(),
                 anomalyDisconnects.get(),

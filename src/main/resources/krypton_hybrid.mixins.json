@@ -38,6 +38,7 @@
     "network.pipeline.Varint21FrameDecoderMixin",
     "network.pipeline.ServerConnectionListenerMixin",
     "network.pipeline.HandshakeValidatorMixin",
+    "network.pipeline.ServerStatusPacketListenerImplMixin",
     "network.pipeline.LoginTimeoutAdvanceMixin",
     "network.pipeline.ConfigurationFinishPhaseMixin",
     "network.pipeline.compression.ConnectionMixin",
