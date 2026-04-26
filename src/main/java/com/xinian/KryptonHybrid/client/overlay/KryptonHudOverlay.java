@@ -20,18 +20,37 @@ import java.util.List;
  */
 public final class KryptonHudOverlay implements LayeredDraw.Layer {
 
+    public enum HudAnchor { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
     private static final int BAR_WIDTH = 130;
     private static final int BAR_HEIGHT = 6;
     private static final int PADDING = 6;
     private static final int CORNER_RADIUS = 4;
 
-    private static final long AUTO_REFRESH_INTERVAL_MS = 2000L;
+    private static long autoRefreshIntervalMs = 2000L;
     private static long lastAutoRefreshMs = 0L;
+    private static HudAnchor anchor = HudAnchor.TOP_RIGHT;
+    private static boolean showTopMod = true;
 
     private static boolean visible = false;
     public static boolean isVisible() { return visible; }
     public static void setVisible(boolean v) { visible = v; }
     public static void toggleVisible() { visible = !visible; }
+    public static long autoRefreshIntervalMs() { return autoRefreshIntervalMs; }
+    public static void setAutoRefreshIntervalMs(long value) { autoRefreshIntervalMs = Math.max(500L, value); }
+    public static HudAnchor anchor() { return anchor; }
+    public static void setAnchor(HudAnchor value) { anchor = value; }
+    public static void cycleAnchor() {
+        anchor = switch (anchor) {
+            case TOP_LEFT -> HudAnchor.TOP_RIGHT;
+            case TOP_RIGHT -> HudAnchor.BOTTOM_RIGHT;
+            case BOTTOM_RIGHT -> HudAnchor.BOTTOM_LEFT;
+            case BOTTOM_LEFT -> HudAnchor.TOP_LEFT;
+        };
+    }
+    public static boolean showTopMod() { return showTopMod; }
+    public static void setShowTopMod(boolean value) { showTopMod = value; }
+    public static void toggleShowTopMod() { showTopMod = !showTopMod; }
 
     @Override
     public void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
@@ -41,7 +60,7 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
 
         StatsSnapshotPayload snap = KryptonStatsClientController.latestSnapshot();
         long now = System.currentTimeMillis();
-        if (now - lastAutoRefreshMs > AUTO_REFRESH_INTERVAL_MS) {
+        if (now - lastAutoRefreshMs > autoRefreshIntervalMs) {
             lastAutoRefreshMs = now;
             KryptonStatsClientController.requestFreshSnapshot();
         }
@@ -51,15 +70,38 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
         int lineH = mc.font.lineHeight + 2;
 
         // Compute number of lines: head + bar + sent + recv + saved + (optional top mod)
-        boolean hasTop = !snap.topMods().isEmpty();
+        boolean hasTop = showTopMod && !snap.topMods().isEmpty();
         int lines = 5 + (hasTop ? 1 : 0);
         int panelHeight = PADDING * 2 + lineH + BAR_HEIGHT + 4 + (lines - 2) * lineH;
         int panelWidth = BAR_WIDTH + PADDING * 2 + 4;
 
         int sw = graphics.guiWidth();
+        int sh = graphics.guiHeight();
         int margin = 4;
-        int panelX = sw - panelWidth - margin;
-        int panelY = margin;
+        int panelX;
+        int panelY;
+        switch (anchor) {
+            case TOP_LEFT -> {
+                panelX = margin;
+                panelY = margin;
+            }
+            case TOP_RIGHT -> {
+                panelX = sw - panelWidth - margin;
+                panelY = margin;
+            }
+            case BOTTOM_LEFT -> {
+                panelX = margin;
+                panelY = sh - panelHeight - margin;
+            }
+            case BOTTOM_RIGHT -> {
+                panelX = sw - panelWidth - margin;
+                panelY = sh - panelHeight - margin;
+            }
+            default -> {
+                panelX = sw - panelWidth - margin;
+                panelY = margin;
+            }
+        }
 
         UITheme.fillRoundedRect(graphics, panelX, panelY, panelWidth, panelHeight,
                 CORNER_RADIUS, UITheme.withAlpha(c.panelBg(), 0xCC));

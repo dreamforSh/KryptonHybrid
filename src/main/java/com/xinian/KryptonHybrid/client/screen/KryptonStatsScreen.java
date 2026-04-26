@@ -65,12 +65,20 @@ public final class KryptonStatsScreen extends Screen {
         // ─── Theme toggle (top-right, sized to content) ───
         Component themeText = themeLabel();
         int themeW = Math.max(72, this.font.width(themeText) + 16);
-        MCButton themeBtn = new MCButton(this.width - themeW - 8, 8, themeW, 18,
+        int topBtnH = 18;
+        int topGap = 6;
+        int settingsW = Math.max(90, this.font.width(Component.translatable("gui.krypton_hybrid.button.settings")) + 16);
+
+        MCButton themeBtn = new MCButton(this.width - themeW - 8, 8, themeW, topBtnH,
                 themeText, b -> {
                     UITheme.toggleMode();
                     b.setMessage(themeLabel());
                 });
         addRenderableWidget(themeBtn);
+
+        addRenderableWidget(new MCButton(this.width - themeW - settingsW - topGap - 8, 8, settingsW, topBtnH,
+                Component.translatable("gui.krypton_hybrid.button.settings"),
+                b -> this.minecraft.setScreen(new KryptonStatsSettingsScreen(this))));
 
         // ─── Tab strip — adaptive width based on longest label ───
         Tab[] tabs = Tab.values();
