@@ -219,6 +219,9 @@ tasks.register('trainZstdDict', JavaExec) {
     def outputDictProp = providers.gradleProperty('outputDict')
     def dictSizeProp = providers.gradleProperty('dictSize')
     def maxSamplesProp = providers.gradleProperty('maxSamples')
+    def minSampleBytesProp = providers.gradleProperty('minSampleBytes')
+    def maxSampleBytesProp = providers.gradleProperty('maxSampleBytes')
+    def evalSamplesProp = providers.gradleProperty('evalSamples')
 
     doFirst {
         def samplesDir = samplesDirProp.orNull
@@ -229,7 +232,31 @@ tasks.register('trainZstdDict', JavaExec) {
         def outputDict = outputDictProp.orElse('config/krypton_hybrid.zdict').get()
         def dictSize = dictSizeProp.orElse('65536').get()
         def maxSamples = maxSamplesProp.orElse('8000').get()
+        def minSampleBytes = minSampleBytesProp.orElse('8').get()
+        def maxSampleBytes = maxSampleBytesProp.orElse('2097152').get()
+        def evalSamples = evalSamplesProp.orElse('1000').get()
 
-        args samplesDir.toString(), outputDict.toString(), dictSize.toString(), maxSamples.toString()
+        args samplesDir.toString(), outputDict.toString(), dictSize.toString(), maxSamples.toString(),
+                minSampleBytes.toString(), maxSampleBytes.toString(), evalSamples.toString()
+    }
+}
+
+tasks.register('inspectZstdDict', JavaExec) {
+    group = 'krypton'
+    description = 'Inspect and validate a Krypton/Zstd dictionary file.'
+    dependsOn tasks.named('classes')
+
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.xinian.KryptonHybrid.tool.ZstdDictionaryTrainer'
+
+    def dictPathProp = providers.gradleProperty('dictPath')
+
+    doFirst {
+        def dictPath = dictPathProp.orElse('config/krypton_hybrid.zdict').get()
+        args 'inspect', dictPath.toString()
     }
 }

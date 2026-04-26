@@ -73,13 +73,24 @@ public class MCButton extends AbstractWidget {
         }
 
         Minecraft mc = Minecraft.getInstance();
-        int tw = mc.font.width(getMessage());
+        String label = truncate(mc, getMessage().getString(), w - 8);
+        int tw = mc.font.width(label);
         int tx = x + (w - tw) / 2;
         int ty = y + (h - mc.font.lineHeight) / 2 + 1;
         if (this.active) {
-            g.drawString(mc.font, getMessage(), tx + 1, ty + 1, UITheme.withAlpha(0xFF000000, 0x60), false);
+            g.drawString(mc.font, label, tx + 1, ty + 1, UITheme.withAlpha(0xFF000000, 0x60), false);
         }
-        g.drawString(mc.font, getMessage(), tx, ty, textColor, true);
+        g.drawString(mc.font, label, tx, ty, textColor, true);
+    }
+
+    private static String truncate(Minecraft mc, String text, int maxWidth) {
+        if (maxWidth <= 0) return "";
+        if (text == null || text.isEmpty()) return "";
+        if (mc.font.width(text) <= maxWidth) return text;
+        String ell = "...";
+        int end = text.length();
+        while (end > 1 && mc.font.width(text.substring(0, end) + ell) > maxWidth) end--;
+        return text.substring(0, Math.max(1, end)) + ell;
     }
 
     private void updateAnimations(float partialTick) {

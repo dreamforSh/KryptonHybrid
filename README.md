@@ -31,7 +31,7 @@ Krypton Hybrid replaces Minecraft's default zlib codec by injecting into `Connec
 | Fallback algorithm | zlib via `velocity-native` |
 | Level range | 1 – 22 (default 3) |
 | Multi-threaded | `workers` ≥ 1 activates native thread pool |
-| Dictionary | Optional `.zdict` pre-trained file, fail-open or fail-fast |
+| Dictionary | Optional `.zdict` pre-trained file, fail-open or fail-fast. See [Zstd dictionary training guide](docs/zstd-dictionary-training.md). |
 | Advanced tuning | `overlap_log`, `job_size`, `strategy`, `LDM` + `window_log` |
 
 > **Both server and client must use the same algorithm.** A mismatch corrupts the session immediately.

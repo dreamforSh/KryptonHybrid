@@ -6,6 +6,8 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.compression.ZstdSampleRecorder;
+import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
 import net.minecraft.ChatFormatting;
@@ -63,6 +65,12 @@ public final class KryptonStatsCommand {
                 .then(Commands.literal("security")
                     .then(Commands.literal("status")
                         .executes(KryptonStatsCommand::executeSecurityStatus)))
+                .then(Commands.literal("zstd")
+                    .then(Commands.literal("status")
+                        .executes(KryptonStatsCommand::executeZstdStatus))
+                    .then(Commands.literal("dict")
+                        .then(Commands.literal("reload")
+                            .executes(KryptonStatsCommand::executeZstdDictReload))))
         );
     }
 
@@ -330,6 +338,27 @@ public final class KryptonStatsCommand {
         ctx.getSource().sendSuccess(() ->
                 t("command.krypton_hybrid.stats.reset")
                         .withStyle(ChatFormatting.GREEN), true);
+        return 1;
+    }
+
+    private static int executeZstdStatus(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        source.sendSuccess(() -> Component.literal("Krypton Zstd status")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+        source.sendSuccess(() -> Component.literal("  Compression: " + ZstdUtil.statusDescription())
+                .withStyle(ChatFormatting.AQUA), false);
+        source.sendSuccess(() -> Component.literal("  Dictionary:  " + ZstdUtil.dictionaryStatusDescription())
+                .withStyle(ChatFormatting.AQUA), false);
+        source.sendSuccess(() -> Component.literal("  Capture:     " + ZstdSampleRecorder.statusDescription())
+                .withStyle(ChatFormatting.AQUA), false);
+        return 1;
+    }
+
+    private static int executeZstdDictReload(CommandContext<CommandSourceStack> ctx) {
+        ZstdUtil.reloadDictionary();
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                        "Reloaded Zstd dictionary: " + ZstdUtil.dictionaryStatusDescription())
+                .withStyle(ChatFormatting.GREEN), true);
         return 1;
     }
 }

@@ -101,6 +101,28 @@ public final class KryptonConfig {
      */
     public static volatile boolean zstdDictRequired = false;
 
+    /**
+     * Captures serialized packet bytes before Zstd compression so administrators can
+     * train a representative dictionary from real server traffic. Disabled by default
+     * because it writes packet samples to disk and copies packet bytes.
+     */
+    public static volatile boolean zstdDictTrainingCaptureEnabled = false;
+
+    /** Directory where dictionary-training packet samples are written. */
+    public static volatile String zstdDictTrainingSamplesDir = "run/krypton_zstd_samples";
+
+    /** Maximum number of packet samples captured in one JVM session. */
+    public static volatile int zstdDictTrainingMaxSamples = 12000;
+
+    /** Capture one eligible packet every N packets. */
+    public static volatile int zstdDictTrainingSampleEvery = 3;
+
+    /** Minimum serialized packet size accepted by the sample recorder. */
+    public static volatile int zstdDictTrainingMinBytes = 24;
+
+    /** Maximum serialized packet size accepted by the sample recorder. */
+    public static volatile int zstdDictTrainingMaxBytes = 256 * 1024;
+
     // --- Network security / independent packet control ---
 
     /** Global security kill-switch. */

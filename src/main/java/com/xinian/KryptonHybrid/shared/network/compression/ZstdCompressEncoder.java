@@ -108,6 +108,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         // ── Pull the (optional) Packet reference handed off by PacketEncoderMixin ──
         Object currentPacket = BroadcastSerializationCache.pollCurrentPacket();
         Packet<?> packet = (currentPacket instanceof Packet<?> p) ? p : null;
+        ZstdSampleRecorder.maybeRecord(packet, msg, uncompressedSize);
 
         // ── P0 Compressed-bytes broadcast cache: short-circuit if the same Packet
         //    instance was already compressed earlier on this Netty I/O thread. ──

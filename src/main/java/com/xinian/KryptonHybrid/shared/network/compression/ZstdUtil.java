@@ -10,6 +10,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  * Utility class for Zstd compression using the zstd-jni library.
@@ -42,6 +44,8 @@ public final class ZstdUtil {
     private static volatile String dictionaryError;
     private static volatile boolean dictionaryLoadAttempted;
     private static volatile ZstdDictionaryMetadata dictionaryMetadata;
+    private static volatile String dictionaryPath;
+    private static volatile String dictionarySha256;
 
     static {
         boolean available = false;
@@ -106,6 +110,8 @@ public final class ZstdUtil {
         dictionaryId = 0L;
         dictionaryError = null;
         dictionaryMetadata = null;
+        dictionaryPath = null;
+        dictionarySha256 = null;
 
         if (!AVAILABLE || !KryptonConfig.zstdDictEnabled) {
             return;
@@ -133,15 +139,19 @@ public final class ZstdUtil {
             ZstdDictionaryMetadata metadata = ZstdDictionaryMetadata.tryParse(bytes);
             byte[] plainDictionary = metadata != null ? metadata.getPlainDictionary() : bytes;
             long dictId = metadata != null ? metadata.getDictID() : Zstd.getDictIdFromDict(plainDictionary);
+            validateDictionary(plainDictionary);
             dictionaryBytes = plainDictionary;
             dictionaryId = dictId;
             dictionaryMetadata = metadata;
+            dictionaryPath = path.toString();
+            dictionarySha256 = metadata != null ? toHex(metadata.getHash(), 12) : sha256Hex(plainDictionary, 12);
 
             KryptonSharedBootstrap.LOGGER.info(
-                    "Loaded Zstd dictionary: {} ({} bytes, id={}, metadata={})",
+                    "Loaded Zstd dictionary: {} ({} bytes, id={}, sha256={}, metadata={})",
                     path,
                     plainDictionary.length,
                     dictId,
+                    dictionarySha256,
                     metadata != null ? "wrapped" : "plain");
         } catch (IOException ioe) {
             dictionaryError = "failed reading dictionary: " + ioe.getMessage();
@@ -156,8 +166,14 @@ public final class ZstdUtil {
         }
         if (dictionaryBytes != null) {
             StringBuilder sb = new StringBuilder("on(id=").append(dictionaryId).append(", ").append(dictionaryBytes.length).append("B");
+            if (dictionarySha256 != null) {
+                sb.append(", sha256=").append(dictionarySha256);
+            }
             if (dictionaryMetadata != null) {
                 sb.append(", samples=").append(dictionaryMetadata.getSampleCount());
+            }
+            if (dictionaryPath != null) {
+                sb.append(", path=").append(dictionaryPath);
             }
             sb.append(")");
             return sb.toString();
@@ -322,6 +338,51 @@ public final class ZstdUtil {
      */
     public static long getCurrentDictionaryId() {
         return dictionaryId;
+    }
+
+    public static String getCurrentDictionaryPath() {
+        return dictionaryPath;
+    }
+
+    public static String getCurrentDictionarySha256() {
+        return dictionarySha256;
+    }
+
+    private static void validateDictionary(byte[] plainDictionary) {
+        ZstdCompressCtx compressCtx = null;
+        ZstdDecompressCtx decompressCtx = null;
+        try {
+            compressCtx = new ZstdCompressCtx();
+            compressCtx.loadDict(plainDictionary);
+            decompressCtx = new ZstdDecompressCtx();
+            decompressCtx.loadDict(plainDictionary);
+        } finally {
+            if (compressCtx != null) {
+                compressCtx.close();
+            }
+            if (decompressCtx != null) {
+                decompressCtx.close();
+            }
+        }
+    }
+
+    private static String sha256Hex(byte[] data, int maxBytes) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return toHex(digest.digest(data), maxBytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException("SHA-256 algorithm not available", e);
+        }
+    }
+
+    private static String toHex(byte[] bytes, int maxBytes) {
+        StringBuilder sb = new StringBuilder(Math.min(bytes.length, maxBytes) * 2);
+        int count = Math.min(bytes.length, maxBytes);
+        for (int i = 0; i < count; i++) {
+            sb.append(Character.forDigit((bytes[i] >>> 4) & 0x0F, 16));
+            sb.append(Character.forDigit(bytes[i] & 0x0F, 16));
+        }
+        return sb.toString();
     }
 
     /**

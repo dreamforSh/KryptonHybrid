@@ -46,6 +46,12 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.BooleanValue                    zstdDictEnabled;
     private final ModConfigSpec.ConfigValue<String>             zstdDictPath;
     private final ModConfigSpec.BooleanValue                    zstdDictRequired;
+    private final ModConfigSpec.BooleanValue                    zstdDictTrainingCaptureEnabled;
+    private final ModConfigSpec.ConfigValue<String>             zstdDictTrainingSamplesDir;
+    private final ModConfigSpec.IntValue                        zstdDictTrainingMaxSamples;
+    private final ModConfigSpec.IntValue                        zstdDictTrainingSampleEvery;
+    private final ModConfigSpec.IntValue                        zstdDictTrainingMinBytes;
+    private final ModConfigSpec.IntValue                        zstdDictTrainingMaxBytes;
     private final ModConfigSpec.BooleanValue                    securityEnabled;
     private final ModConfigSpec.IntValue                        securityConnectionRatePerSecond;
     private final ModConfigSpec.IntValue                        securityConnectionBurstLimit;
@@ -248,6 +254,55 @@ public final class KryptonForgeConfig {
                         "Default: false"
                 )
                 .define("dict_required", false);
+
+        zstdDictTrainingCaptureEnabled = builder
+                .comment(
+                        "Capture serialized packet samples before Zstd compression for dictionary training.",
+                        "Only enable this temporarily while collecting representative traffic.",
+                        "Captured files may contain mod payload data. Do not publish them publicly.",
+                        "Default: false"
+                )
+                .define("dict_training_capture_enabled", false);
+
+        zstdDictTrainingSamplesDir = builder
+                .comment(
+                        "Directory where dictionary-training packet samples are written.",
+                        "Relative paths are resolved from the game working directory.",
+                        "Default: run/krypton_zstd_samples"
+                )
+                .define("dict_training_samples_dir", "run/krypton_zstd_samples");
+
+        zstdDictTrainingMaxSamples = builder
+                .comment(
+                        "Maximum packet samples captured in one JVM session.",
+                        "Capture stops automatically after this many samples.",
+                        "Range: 1 - 100000  |  Default: 12000"
+                )
+                .defineInRange("dict_training_max_samples", 12000, 1, 100000);
+
+        zstdDictTrainingSampleEvery = builder
+                .comment(
+                        "Capture one eligible packet every N packets.",
+                        "Higher values reduce disk writes and sampling overhead.",
+                        "Range: 1 - 10000  |  Default: 3"
+                )
+                .defineInRange("dict_training_sample_every", 3, 1, 10000);
+
+        zstdDictTrainingMinBytes = builder
+                .comment(
+                        "Minimum serialized packet size captured for training.",
+                        "Very tiny packets usually add noise to dictionary training.",
+                        "Range: 1 - 1048576  |  Default: 24"
+                )
+                .defineInRange("dict_training_min_bytes", 24, 1, 1048576);
+
+        zstdDictTrainingMaxBytes = builder
+                .comment(
+                        "Maximum serialized packet size captured for training.",
+                        "Caps sample-file size and memory copied by the recorder.",
+                        "Range: 1024 - 2097152  |  Default: 262144"
+                )
+                .defineInRange("dict_training_max_bytes", 256 * 1024, 1024, 2 * 1024 * 1024);
 
         builder.pop();
 
@@ -619,6 +674,12 @@ public final class KryptonForgeConfig {
         KryptonConfig.zstdDictEnabled      = zstdDictEnabled.get();
         KryptonConfig.zstdDictPath         = zstdDictPath.get();
         KryptonConfig.zstdDictRequired     = zstdDictRequired.get();
+        KryptonConfig.zstdDictTrainingCaptureEnabled = zstdDictTrainingCaptureEnabled.get();
+        KryptonConfig.zstdDictTrainingSamplesDir     = zstdDictTrainingSamplesDir.get();
+        KryptonConfig.zstdDictTrainingMaxSamples     = zstdDictTrainingMaxSamples.get();
+        KryptonConfig.zstdDictTrainingSampleEvery    = zstdDictTrainingSampleEvery.get();
+        KryptonConfig.zstdDictTrainingMinBytes       = zstdDictTrainingMinBytes.get();
+        KryptonConfig.zstdDictTrainingMaxBytes       = zstdDictTrainingMaxBytes.get();
         KryptonConfig.securityEnabled      = securityEnabled.get();
         KryptonConfig.securityConnectionRatePerSecond = securityConnectionRatePerSecond.get();
         KryptonConfig.securityConnectionBurstLimit = securityConnectionBurstLimit.get();

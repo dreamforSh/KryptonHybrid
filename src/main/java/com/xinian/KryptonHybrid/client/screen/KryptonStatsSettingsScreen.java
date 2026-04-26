@@ -126,9 +126,13 @@ public final class KryptonStatsSettingsScreen extends Screen {
 
     private Component themeLabel() {
         return Component.translatable("gui.krypton_hybrid.settings.theme",
-                Component.translatable(UITheme.getMode() == UITheme.Mode.DARK
-                        ? "gui.krypton_hybrid.theme.dark"
-                        : "gui.krypton_hybrid.theme.light"));
+                themeName());
+    }
+
+    private Component themeName() {
+        return Component.translatable(UITheme.getMode() == UITheme.Mode.DARK
+                ? "gui.krypton_hybrid.theme.name.dark"
+                : "gui.krypton_hybrid.theme.name.light");
     }
 
     private Component hudVisibleLabel() {

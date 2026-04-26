@@ -200,7 +200,7 @@ public final class KryptonStatsScreen extends Screen {
                 .setTitle(translate("gui.krypton_hybrid.section.throughput"))
                 .setCollapsible(true);
         throughput.addEntry((g, x, y, w, h) -> {
-            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", elapsed + " s");
+            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", formatDuration(elapsed));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_sent",
                     String.format("%,d (%.1f/s)", snap.packetsSent(), snap.packetsSentPerSecond()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_received",
@@ -228,13 +228,23 @@ public final class KryptonStatsScreen extends Screen {
                 .setTitle(translate("gui.krypton_hybrid.section.network_sent"))
                 .setCollapsible(true);
         sent.addEntry((g, x, y, w, h) -> {
-            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", elapsed + " s");
+            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", formatDuration(elapsed));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_sent",
                     String.format("%,d", snap.packetsSent()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig_rate",
                     formatBytesRate(snap.bytesSentOriginal(), snap.originalBytesPerSecond()));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire_rate",
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire_rate",
                     formatBytesRate(snap.bytesSentWire(), snap.wireBytesPerSecond()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig",
+                    NetworkTrafficStats.formatBytes(snap.bytesSentOriginal()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire",
+                    NetworkTrafficStats.formatBytes(snap.bytesSentWire()), ratioColor(snap.compressionRatio()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.saved_bytes",
+                    NetworkTrafficStats.formatBytes(snap.savedBytes()), qualityColor(snap.savingPercent(), 30.0, 10.0));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_orig_packet",
+                    String.format("%.1f B", snap.averageOriginalPacketBytes()));
+            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_wire_packet",
+                    String.format("%.1f B", snap.averageWirePacketBytes()));
         });
         activePanels.add(sent);
 
@@ -248,12 +258,24 @@ public final class KryptonStatsScreen extends Screen {
                     String.format("%,d", snap.packetsReceived()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received_rate",
                     formatBytesRate(snap.bytesReceived(), snap.receivedBytesPerSecond()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received",
+                    NetworkTrafficStats.formatBytes(snap.bytesReceived()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_recv_packet",
+                    String.format("%.1f B", snap.averageReceivedPacketBytes()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundles_emitted",
                     String.format("%,d", snap.bundlesEmitted()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_batches_observed",
+                    String.format("%,d", snap.bundleBatchesObserved()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_packets_total",
+                    String.format("%,d", snap.bundlePacketsTotal()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_avg_size",
                     String.format("%.2f", snap.averageBundleSize()));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
-                    String.format("%.1f%%", snap.bundleHitRatePercent()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
+                    String.format("%.1f%%", snap.bundleHitRatePercent()), qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_dropped",
+                    String.format("%,d", snap.coalesceDroppedPackets()));
+            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_drop_rate",
+                    String.format("%.1f%%", snap.coalesceDropRatePercent()), inverseQualityColor(snap.coalesceDropRatePercent(), 5.0, 15.0));
         });
         activePanels.add(recv);
     }
@@ -266,14 +288,20 @@ public final class KryptonStatsScreen extends Screen {
             int ly = drawSavingBar(g, x, y, w, snap.savingPercent());
             ly += 6;
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.algorithm", snap.compressionAlgorithm());
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig",
+                    NetworkTrafficStats.formatBytes(snap.bytesSentOriginal()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire",
+                    NetworkTrafficStats.formatBytes(snap.bytesSentWire()), ratioColor(snap.compressionRatio()));
+            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received",
+                    NetworkTrafficStats.formatBytes(snap.bytesReceived()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.saved_bytes",
-                    NetworkTrafficStats.formatBytes(snap.savedBytes()));
+                    NetworkTrafficStats.formatBytes(snap.savedBytes()), qualityColor(snap.savingPercent(), 30.0, 10.0));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.compression_ratio",
-                    String.format("%.4f", snap.compressionRatio()));
+                    String.format("%.4f", snap.compressionRatio()), ratioColor(snap.compressionRatio()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bandwidth_saving",
-                    String.format("%.2f%%", snap.savingPercent()));
+                    String.format("%.2f%%", snap.savingPercent()), qualityColor(snap.savingPercent(), 30.0, 10.0));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_coverage",
-                    String.format("%.1f%%", snap.trackedCoveragePercent()));
+                    String.format("%.1f%%", snap.trackedCoveragePercent()), qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_orig_packet",
                     String.format("%.1f B", snap.averageOriginalPacketBytes()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_wire_packet",
@@ -348,6 +376,14 @@ public final class KryptonStatsScreen extends Screen {
                 String.format("%,d", snap.trackedModCount()));
         ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_coverage",
                 String.format("%.1f%%", snap.trackedCoveragePercent()), qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
+        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_type_packets",
+                String.format("%,d", snap.totalTrackedTypePackets()));
+        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_type_bytes",
+                NetworkTrafficStats.formatBytes(snap.totalTrackedTypeBytes()));
+        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_mod_packets",
+                String.format("%,d", snap.totalTrackedModPackets()));
+        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_mod_bytes",
+                NetworkTrafficStats.formatBytes(snap.totalTrackedModBytes()));
         ly += 4;
         ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.hottest_packet",
                 truncate(snap.hottestPacketType(), w - 140), UITheme.colors().accentLight());
@@ -703,7 +739,8 @@ public final class KryptonStatsScreen extends Screen {
         Component hint = Component.translatable(
                 "gui.krypton_hybrid.footer_hint",
                 KryptonStatsClientController.openStatsKey().getTranslatedKeyMessage());
-        g.drawCenteredString(this.font, hint, this.width / 2, hintY, c.textMuted());
+        String hintText = truncate(hint.getString(), this.width - 24);
+        g.drawCenteredString(this.font, hintText, this.width / 2, hintY, c.textMuted());
 
         for (var renderable : this.renderables) renderable.render(g, mouseX, mouseY, partialTick);
     }
@@ -878,7 +915,7 @@ public final class KryptonStatsScreen extends Screen {
         int gap = 8;
         // If label + value collide, wrap value to a second line right-aligned.
         if (labelW + gap + valueW > width) {
-            g.drawString(this.font, label, x, y, c.textSecondary(), false);
+            g.drawString(this.font, truncate(label, width), x, y, c.textSecondary(), false);
             String safe = truncate(value, width - 2);
             int sw = this.font.width(safe);
             g.drawString(this.font, safe, x + width - sw, y + lineH(), valueColor, false);
@@ -912,6 +949,10 @@ public final class KryptonStatsScreen extends Screen {
         return Component.translatable(UITheme.getMode() == UITheme.Mode.DARK
                 ? "gui.krypton_hybrid.theme.dark"
                 : "gui.krypton_hybrid.theme.light");
+    }
+
+    private static String formatDuration(long seconds) {
+        return Component.translatable("gui.krypton_hybrid.value.seconds", String.format("%,d", seconds)).getString();
     }
 
     private static String formatBytesRate(long total, long perSecond) {
