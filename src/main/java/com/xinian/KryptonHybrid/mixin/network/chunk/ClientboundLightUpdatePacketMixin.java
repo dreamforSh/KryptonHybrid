@@ -5,7 +5,6 @@ import io.netty.buffer.Unpooled;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -47,8 +46,7 @@ public abstract class ClientboundLightUpdatePacketMixin {
             )
     )
     private ClientboundLightUpdatePacketData readLightData$krypton(FriendlyByteBuf buf, int x, int z) {
-        if (!KryptonConfig.lightOptEnabled
-                || buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
+        if (buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
             return new ClientboundLightUpdatePacketData(buf, x, z);
         }
         buf.readByte();
@@ -97,4 +95,3 @@ public abstract class ClientboundLightUpdatePacketMixin {
         return list;
     }
 }
-

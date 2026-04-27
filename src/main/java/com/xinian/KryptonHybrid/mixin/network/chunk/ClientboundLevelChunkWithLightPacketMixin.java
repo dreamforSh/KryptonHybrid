@@ -10,7 +10,6 @@ import net.minecraft.network.VarInt;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.chunk.ChunkDataCodec;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -56,8 +55,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
             )
     )
     private ClientboundLevelChunkPacketData readChunkData$krypton(RegistryFriendlyByteBuf buf, int x, int z) {
-        if (!KryptonConfig.chunkOptEnabled
-                || buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
+        if (buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
             return new ClientboundLevelChunkPacketData(buf, x, z);
         }
         buf.readByte(); // consume 0x4B marker
@@ -127,8 +125,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
             )
     )
     private ClientboundLightUpdatePacketData readLightData$krypton(FriendlyByteBuf buf, int x, int z) {
-        if (!KryptonConfig.lightOptEnabled
-                || buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
+        if (buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
             return new ClientboundLightUpdatePacketData(buf, x, z);
         }
         buf.readByte();
@@ -179,4 +176,3 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         return list;
     }
 }
-

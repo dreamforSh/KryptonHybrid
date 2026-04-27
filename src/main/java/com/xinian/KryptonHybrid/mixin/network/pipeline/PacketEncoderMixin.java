@@ -10,6 +10,7 @@ import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlContext;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import org.spongepowered.asm.mixin.Mixin;
@@ -44,6 +45,8 @@ public class PacketEncoderMixin {
      */
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
+        PacketControlContext.setCurrentChannel(ctx.channel());
+
         // Track bundle-delimiter scope for downstream forced-compression decisions.
         if (packet instanceof net.minecraft.network.protocol.BundleDelimiterPacket<?>) {
             BundleEncodeContext.onDelimiter();
@@ -60,6 +63,7 @@ public class PacketEncoderMixin {
             // Track stats for the cached write too
             NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), cached.length);
             NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), cached.length);
+            PacketControlContext.clearCurrentChannel();
             ci.cancel();
         }
     }
@@ -80,6 +84,8 @@ public class PacketEncoderMixin {
             out.getBytes(out.readerIndex(), serialized);
             BroadcastSerializationCache.put(packet, serialized);
         }
+
+        PacketControlContext.clearCurrentChannel();
     }
 
     @Unique

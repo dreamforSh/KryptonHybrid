@@ -3,8 +3,10 @@ package com.xinian.KryptonHybrid;
 import com.xinian.KryptonHybrid.command.KryptonStatsCommand;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
+import com.xinian.KryptonHybrid.shared.network.KryptonHelloConfigurationTask;
 import com.xinian.KryptonHybrid.shared.network.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.KryptonNetworkHandler;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
@@ -16,6 +18,7 @@ import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.DirectionalPayloadHandler;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
@@ -30,6 +33,7 @@ public class kryptonhybrid {
         modEventBus.addListener(this::onConfigLoad);
         modEventBus.addListener(this::onConfigReload);
         modEventBus.addListener(this::onRegisterPayloads);
+        modEventBus.addListener(this::onRegisterConfigurationTasks);
 
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
 
@@ -62,6 +66,13 @@ public class kryptonhybrid {
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
         KryptonStatsCommand.register(event.getDispatcher());
+    }
+
+    private void onRegisterConfigurationTasks(RegisterConfigurationTasksEvent event) {
+        if (event.getListener().hasChannel(KryptonHelloPayload.TYPE)) {
+            PacketControlState.get(event.getListener().getConnection().channel()).markHelloAvailable();
+            event.register(KryptonHelloConfigurationTask.INSTANCE);
+        }
     }
 
     /**

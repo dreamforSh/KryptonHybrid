@@ -2,6 +2,7 @@ package com.xinian.KryptonHybrid.mixin.network.chunk;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.chunk.ChunkDataCodec;
+import com.xinian.KryptonHybrid.shared.network.control.KryptonWireFormat;
 import io.netty.buffer.Unpooled;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
@@ -111,7 +112,9 @@ public abstract class ChunkDataOptMixin {
      */
     @Inject(method = "write", at = @At("HEAD"), cancellable = true)
     private void krypton$writeOptimized(RegistryFriendlyByteBuf buf, CallbackInfo ci) {
-        if (!KryptonConfig.chunkOptEnabled || this.krypton$sectionCount <= 0) return;
+        if (!KryptonConfig.chunkOptEnabled
+                || !KryptonWireFormat.canWriteCurrentChunkData()
+                || this.krypton$sectionCount <= 0) return;
 
         buf.writeByte(KRYPTON_MARKER);
 

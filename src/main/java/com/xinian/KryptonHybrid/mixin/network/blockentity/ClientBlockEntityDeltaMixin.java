@@ -1,6 +1,5 @@
 package com.xinian.KryptonHybrid.mixin.network.blockentity;
 
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.BlockEntityDeltaCache;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -45,10 +44,6 @@ public class ClientBlockEntityDeltaMixin {
      */
     @Inject(method = "handleBlockEntityData", at = @At("HEAD"), cancellable = true)
     private void krypton$mergeDelta(ClientboundBlockEntityDataPacket packet, CallbackInfo ci) {
-        if (!KryptonConfig.blockEntityDeltaEnabled) {
-            return;
-        }
-
         CompoundTag tag = packet.getTag();
         if (tag == null || !tag.contains(BlockEntityDeltaCache.DELTA_MARKER_KEY)) {
             return;
