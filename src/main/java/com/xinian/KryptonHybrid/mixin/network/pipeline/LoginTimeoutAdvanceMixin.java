@@ -14,7 +14,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Advances the {@link HandshakeTimeoutHandler} from LOGIN → PLAY stage when the
+ * Advances the {@link HandshakeTimeoutHandler} from LOGIN ??PLAY stage when the
  * login phase completes and the connection transitions to configuration/play.
  */
 @Mixin(ServerLoginPacketListenerImpl.class)

@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
  * <p>The vanilla flush-consolidation mixins disable {@code autoFlush} during the
  * entity-tick and re-enable it at the end (which fires an immediate flush).
  * Within the same server tick a second consolidation window opens for
- * block-update broadcasts and produces another flush.  Result: ≥ 2 syscalls per
+ * block-update broadcasts and produces another flush.  Result: ??2 syscalls per
  * tick per player.</p>
  *
  * <h3>What this does</h3>
@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <h3>Idempotency</h3>
  * <p>Multiple {@link #scheduleFlush(Connection)} calls within the same window
- * coalesce — a flush is at most pending once per connection at any time.</p>
+ * coalesce ??a flush is at most pending once per connection at any time.</p>
  *
  * <h3>Thread safety</h3>
  * <p>The {@code pending} set uses a concurrent map because schedule calls come
@@ -48,7 +48,7 @@ public final class MicroBatchFlusher {
     public static void scheduleFlush(ServerPlayer player) {
         if (player == null) return;
         if (player.getClass() != ServerPlayer.class) return;
-        scheduleFlush(player.connection.getConnection());
+        scheduleFlush(player.connection.connection);
     }
 
     public static void scheduleFlush(Connection connection) {
@@ -77,7 +77,7 @@ public final class MicroBatchFlusher {
         }, delay, TimeUnit.MILLISECONDS);
     }
 
-    /** For testing / shutdown — drops any pending bookkeeping. */
+    /** For testing / shutdown ??drops any pending bookkeeping. */
     public static void clear() {
         PENDING.clear();
     }

@@ -86,10 +86,10 @@ public class ServerChunkCacheBroadcastMixin {
             at = @At("RETURN")
     )
     private void krypton$afterBroadcast(CallbackInfo ci) {
-        // Close the bundle window — sends BundlePackets (buffered, not flushed)
+        // Close the bundle window ??sends BundlePackets (buffered, not flushed)
         BroadcastBundleCollector.endBatchAndFlush();
 
-        // Re-enable auto-flush → single kernel flush per player
+        // Re-enable auto-flush ??single kernel flush per player
         for (var player : this.level.players()) {
             AutoFlushUtil.setAutoFlush(player, true);
         }

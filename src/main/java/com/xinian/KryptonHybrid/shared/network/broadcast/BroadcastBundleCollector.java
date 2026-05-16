@@ -34,9 +34,9 @@ import java.util.Map;
  * <p>This collector works identically to {@link EntityBundleCollector} but is scoped
  * to the broadcast phase of {@code ServerChunkCache.tickChunks()}:</p>
  * <ol>
- *   <li>{@link #beginBatch()} — opens a collection window</li>
- *   <li>{@link #collect(ServerPlayer, Packet)} — appends packets per player</li>
- *   <li>{@link #endBatchAndFlush()} — wraps &ge;2 packets in a BundlePacket and sends</li>
+ *   <li>{@link #beginBatch()} ??opens a collection window</li>
+ *   <li>{@link #collect(ServerPlayer, Packet)} ??appends packets per player</li>
+ *   <li>{@link #endBatchAndFlush()} ??wraps &ge;2 packets in a BundlePacket and sends</li>
  * </ol>
  *
  * @see com.xinian.KryptonHybrid.mixin.network.flushconsolidation.ServerChunkCacheBroadcastMixin
@@ -47,7 +47,7 @@ public final class BroadcastBundleCollector {
     /**
      * Thread-local batch storage.  Non-null only while a collection window is open.
      * Uses {@link IdentityHashMap} because {@link ServerPlayer} instances are
-     * singletons — identity comparison is correct and fast.
+     * singletons ??identity comparison is correct and fast.
      */
     private static final ThreadLocal<Map<ServerPlayer, List<Packet<?>>>> BATCH =
             new ThreadLocal<>();
@@ -138,7 +138,7 @@ public final class BroadcastBundleCollector {
                 emittedBundles++;
                 packetsInBundles += packets.size();
                 player.connection.send(new ClientboundBundlePacket(
-                        (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
+                        (Iterable<Packet<ClientGamePacketListener>>) (Iterable<?>) packets
                 ));
             }
         }

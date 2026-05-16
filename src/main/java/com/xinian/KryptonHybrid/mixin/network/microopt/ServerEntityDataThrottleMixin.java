@@ -35,14 +35,14 @@ import java.util.Set;
  * dirty without a true value change:</p>
  * <ul>
  *   <li>{@link SynchedEntityData#set(net.minecraft.network.syncher.EntityDataAccessor, Object, boolean)
- *       set(key, value, <b>force=true</b>)} — used by health regeneration ticks,
- *       armor stand pose snapping, and various entity state machines — always sets
+ *       set(key, value, <b>force=true</b>)} ??used by health regeneration ticks,
+ *       armor stand pose snapping, and various entity state machines ??always sets
  *       {@code dirty=true} even when the stored value is identical.</li>
- *   <li>Rapid set→revert cycles within a single tick (e.g. temporary flags toggled in
+ *   <li>Rapid set?revert cycles within a single tick (e.g. temporary flags toggled in
  *       AI phases) where the net result is no change, but the dirty flag persists.</li>
  * </ul>
  *
- * <h3>Solution — Per-entity last-broadcast value cache</h3>
+ * <h3>Solution ??Per-entity last-broadcast value cache</h3>
  * <p>This mixin maintains a per-{@link ServerEntity} {@code Int2ObjectOpenHashMap}
  * keyed by {@link SynchedEntityData.DataValue#id()}, storing the last
  * <em>successfully broadcast</em> value object.  Before broadcasting, each dirty entry
@@ -58,7 +58,7 @@ import java.util.Set;
  *       updated every tick by {@code getNonDefaultValues()}, so new trackers always
  *       get the correct initial state regardless of throttle history.</li>
  *   <li><strong>Attribute sync:</strong> the {@link ClientboundUpdateAttributesPacket}
- *       path is unaffected — attribute dirtiness is managed separately by
+ *       path is unaffected ??attribute dirtiness is managed separately by
  *       {@link net.minecraft.world.entity.ai.attributes.AttributeMap} and is already
  *       well-behaved (only truly modified attributes are flagged).</li>
  *   <li><strong>Mixin compatibility:</strong> uses {@code @Inject(HEAD, cancellable=true)}
@@ -68,7 +68,7 @@ import java.util.Set;
  * </ul>
  *
  * <h3>Performance impact</h3>
- * <p>In farm/mob-grinder scenarios with 100+ entities, this eliminates 30–60% of
+ * <p>In farm/mob-grinder scenarios with 100+ entities, this eliminates 30??0% of
  * {@code SetEntityData} packets per tick.  The per-entry {@code equals()} check is
  * cheaper than packet serialization + compression + Netty write for the eliminated
  * packets.  Memory overhead is one {@code Int2ObjectOpenHashMap} per tracked entity
@@ -95,10 +95,10 @@ public abstract class ServerEntityDataThrottleMixin {
      *
      * <p>Uses fastutil's {@link Int2ObjectOpenHashMap} for zero-boxing int keys and
      * compact memory layout.  Entries are lazily populated on first broadcast and
-     * updated in-place on subsequent broadcasts.  The map is never cleared — entity
+     * updated in-place on subsequent broadcasts.  The map is never cleared ??entity
      * data slots are static per entity class, so the map size is bounded by the
      * number of registered {@link net.minecraft.network.syncher.EntityDataAccessor}s
-     * (typically 5–15 per entity type).</p>
+     * (typically 5??5 per entity type).</p>
      */
     @Unique
     private final Int2ObjectOpenHashMap<Object> krypton$lastBroadcastValues = new Int2ObjectOpenHashMap<>();
@@ -120,7 +120,7 @@ public abstract class ServerEntityDataThrottleMixin {
      *   <li>Attribute sync proceeds unchanged.</li>
      * </ol>
      *
-     * @param ci the Mixin callback — cancelled to prevent vanilla re-execution
+     * @param ci the Mixin callback ??cancelled to prevent vanilla re-execution
      */
     @Inject(method = "sendDirtyEntityData", at = @At("HEAD"), cancellable = true)
     private void krypton$throttledSendDirtyEntityData(CallbackInfo ci) {
@@ -143,9 +143,9 @@ public abstract class ServerEntityDataThrottleMixin {
             }
         }
 
-        // Attribute sync — unchanged from vanilla
+        // Attribute sync ??unchanged from vanilla
         if (this.entity instanceof LivingEntity living) {
-            Set<AttributeInstance> set = living.getAttributes().getAttributesToSync();
+            Set<AttributeInstance> set = living.getAttributes().getDirtyAttributes();
             if (!set.isEmpty()) {
                 this.broadcastAndSend(
                         new ClientboundUpdateAttributesPacket(this.entity.getId(), set)
@@ -164,7 +164,7 @@ public abstract class ServerEntityDataThrottleMixin {
      * provides correct deep equality.  The cache stores the value <em>object reference
      * or boxed value</em> returned by {@link SynchedEntityData.DataValue#value()},
      * which is safe because entity data values are effectively immutable once returned
-     * from {@code packDirty()} — the internal {@code DataItem} creates new wrapper
+     * from {@code packDirty()} ??the internal {@code DataItem} creates new wrapper
      * objects on mutation.</p>
      *
      * @param dirtyEntries the list of dirty data values from {@link SynchedEntityData#packDirty()}

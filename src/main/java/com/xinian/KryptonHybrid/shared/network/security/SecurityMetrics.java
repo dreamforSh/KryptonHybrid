@@ -19,12 +19,12 @@ public final class SecurityMetrics {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("KryptonSecurity");
 
-    // ── Connection-level ──────────────────────────────────────────────
+    // ?? Connection-level ??????????????????????????????????????????????
 
     /** Connections rejected by the per-IP rate limiter. */
     private final AtomicLong connectionsRateLimited = new AtomicLong();
 
-    // ── Packet-level ──────────────────────────────────────────────────
+    // ?? Packet-level ??????????????????????????????????????????????????
 
     /** Packets rejected by the size / NBT depth validator. */
     private final AtomicLong packetsSizeRejected = new AtomicLong();
@@ -35,12 +35,12 @@ public final class SecurityMetrics {
     /** All-zero/null frame data dropped by the frame decoder nullping guard. */
     private final AtomicLong nullFramesDropped = new AtomicLong();
 
-    // ── Decompression ─────────────────────────────────────────────────
+    // ?? Decompression ?????????????????????????????????????????????????
 
     /** Packets flagged as decompression bombs (ratio exceeded). */
     private final AtomicLong decompressionBombs = new AtomicLong();
 
-    // ── Handshake / protocol ──────────────────────────────────────────
+    // ?? Handshake / protocol ??????????????????????????????????????????
 
     /** Handshakes rejected by the protocol/address validator. */
     private final AtomicLong handshakesRejected = new AtomicLong();
@@ -54,7 +54,7 @@ public final class SecurityMetrics {
     /** Connections closed by the stage-aware read timeout handler. */
     private final AtomicLong timeouts = new AtomicLong();
 
-    // ── Anomaly detection ─────────────────────────────────────────────
+    // ?? Anomaly detection ?????????????????????????????????????????????
 
     /** Individual anomaly events recorded (before disconnect threshold). */
     private final AtomicLong anomalyEvents = new AtomicLong();
@@ -62,7 +62,7 @@ public final class SecurityMetrics {
     /** Connections forcibly closed due to anomaly strike threshold. */
     private final AtomicLong anomalyDisconnects = new AtomicLong();
 
-    // ── Netty resource guard ──────────────────────────────────────────
+    // ?? Netty resource guard ??????????????????????????????????????????
 
     /** Writes dropped because the pending queue exceeded the limit. */
     private final AtomicLong writesDropped = new AtomicLong();
@@ -72,7 +72,7 @@ public final class SecurityMetrics {
 
     private SecurityMetrics() {}
 
-    // ── Increment methods ─────────────────────────────────────────────
+    // ?? Increment methods ?????????????????????????????????????????????
 
     public void recordConnectionRateLimited()   { connectionsRateLimited.incrementAndGet(); }
     public void recordPacketSizeRejected()       { packetsSizeRejected.incrementAndGet(); }
@@ -88,7 +88,7 @@ public final class SecurityMetrics {
     public void recordWriteDropped()             { writesDropped.incrementAndGet(); }
     public void recordWatermarkBreach()          { watermarkBreaches.incrementAndGet(); }
 
-    // ── Read methods (for /krypton stats) ─────────────────────────────
+    // ?? Read methods (for /krypton stats) ?????????????????????????????
 
     public long getConnectionsRateLimited()  { return connectionsRateLimited.get(); }
     public long getPacketsSizeRejected()     { return packetsSizeRejected.get(); }
@@ -126,7 +126,7 @@ public final class SecurityMetrics {
         long total = connRL + pktSR + readRej + nullFrm + dcBomb + hsRej + statusDrop + legacyDrop + to + anEvt + anDisc + wrDrop + wmBr;
         if (total == 0) return; // nothing to report
 
-        LOGGER.info("[Krypton Security] Period summary — "
+        LOGGER.info("[Krypton Security] Period summary ??"
                         + "connRateLimited={}, "
                         + "pktSizeRejected={}, readLimitRejected={}, nullFramesDropped={}, "
                         + "decompBombs={}, handshakeRejected={}, statusDropped={}, legacyDropped={}, timeouts={}, "
@@ -141,20 +141,20 @@ public final class SecurityMetrics {
     public String snapshot() {
         return String.format(
                 """
-                §6[Krypton Security Metrics]
-                §7Connections rate-limited: §f%d
-                §7Packets size-rejected:    §f%d
-                §7Read-limit rejected:      §f%d
-                §7Null frames dropped:      §f%d
-                §7Decompression bombs:      §f%d
-                §7Handshakes rejected:      §f%d
-                §7Status pings dropped:     §f%d
-                §7Legacy pings dropped:     §f%d
-                §7Timeouts:                 §f%d
-                §7Anomaly events:           §f%d
-                §7Anomaly disconnects:      §f%d
-                §7Writes dropped:           §f%d
-                §7Watermark breaches:       §f%d""",
+                ?6[Krypton Security Metrics]
+                ?7Connections rate-limited: ?f%d
+                ?7Packets size-rejected:    ?f%d
+                ?7Read-limit rejected:      ?f%d
+                ?7Null frames dropped:      ?f%d
+                ?7Decompression bombs:      ?f%d
+                ?7Handshakes rejected:      ?f%d
+                ?7Status pings dropped:     ?f%d
+                ?7Legacy pings dropped:     ?f%d
+                ?7Timeouts:                 ?f%d
+                ?7Anomaly events:           ?f%d
+                ?7Anomaly disconnects:      ?f%d
+                ?7Writes dropped:           ?f%d
+                ?7Watermark breaches:       ?f%d""",
                 connectionsRateLimited.get(),
                 packetsSizeRejected.get(),
                 readLimitRejected.get(),

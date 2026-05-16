@@ -12,13 +12,13 @@ import org.slf4j.LoggerFactory;
  *
  * <h3>Tracked anomalies</h3>
  * <ul>
- *   <li><strong>HMAC verification failure</strong> — Velocity forwarding HMAC mismatch</li>
- *   <li><strong>Compression error</strong> — repeated decompression failures</li>
- *   <li><strong>Missing hello</strong> — connection enters PLAY without completing
+ *   <li><strong>HMAC verification failure</strong> ??Velocity forwarding HMAC mismatch</li>
+ *   <li><strong>Compression error</strong> ??repeated decompression failures</li>
+ *   <li><strong>Missing hello</strong> ??connection enters PLAY without completing
  *       the {@code krypton_hybrid:hello} capability negotiation (not always malicious,
  *       but tracked as a signal)</li>
- *   <li><strong>Invalid packet</strong> — repeated malformed / out-of-protocol packets</li>
- *   <li><strong>Rapid reconnect</strong> — same IP reconnects too quickly after being
+ *   <li><strong>Invalid packet</strong> ??repeated malformed / out-of-protocol packets</li>
+ *   <li><strong>Rapid reconnect</strong> ??same IP reconnects too quickly after being
  *       disconnected</li>
  * </ul>
  *
@@ -47,12 +47,12 @@ public final class AnomalyDetector {
      * Anomaly types, each carrying a different weight (strike cost).
      */
     public enum AnomalyType {
-        HMAC_FAILURE(3),           // high severity — likely attack
-        COMPRESSION_ERROR(2),      // medium — could be corruption or attack
-        MISSING_HELLO(1),          // low — could be vanilla client
+        HMAC_FAILURE(3),           // high severity ??likely attack
+        COMPRESSION_ERROR(2),      // medium ??could be corruption or attack
+        MISSING_HELLO(1),          // low ??could be vanilla client
         INVALID_PACKET(2),         // medium
-        RAPID_RECONNECT(1),        // low — could be network issue
-        PROTOCOL_VIOLATION(3);     // high — definite misbehaviour
+        RAPID_RECONNECT(1),        // low ??could be network issue
+        PROTOCOL_VIOLATION(3);     // high ??definite misbehaviour
 
         private final int weight;
 
@@ -63,7 +63,7 @@ public final class AnomalyDetector {
         public int weight() { return weight; }
     }
 
-    // ── Per-connection state ──────────────────────────────────────────
+    // ?? Per-connection state ??????????????????????????????????????????
 
     private final Channel channel;
     private int totalStrikes = 0;
@@ -103,13 +103,13 @@ public final class AnomalyDetector {
         totalStrikes += type.weight();
         SecurityMetrics.INSTANCE.recordAnomalyEvent();
 
-        LOGGER.warn("[Krypton Security] Anomaly detected on {} — type={}, strikes={}/{}, detail: {}",
+        LOGGER.warn("[Krypton Security] Anomaly detected on {} ??type={}, strikes={}/{}, detail: {}",
                 channel.remoteAddress(), type, totalStrikes,
                 KryptonConfig.securityAnomalyStrikeThreshold, details);
 
         if (totalStrikes >= KryptonConfig.securityAnomalyStrikeThreshold) {
             SecurityMetrics.INSTANCE.recordAnomalyDisconnect();
-            LOGGER.warn("[Krypton Security] Strike threshold reached for {} — closing connection",
+            LOGGER.warn("[Krypton Security] Strike threshold reached for {} ??closing connection",
                     channel.remoteAddress());
             channel.close();
         }

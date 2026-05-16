@@ -43,7 +43,7 @@ public class PacketSizeValidator extends ChannelInboundHandlerAdapter {
             int size = buf.readableBytes();
             int maxSize = KryptonConfig.securityMaxPacketBytes;
 
-            // ── Empty frame check ─────────────────────────────────────
+            // ?? Empty frame check ?????????????????????????????????????
             if (size == 0) {
                 SecurityMetrics.INSTANCE.recordPacketSizeRejected();
                 LOGGER.debug("[Krypton Security] Rejected empty packet frame from {}",
@@ -52,7 +52,7 @@ public class PacketSizeValidator extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            // ── Oversized frame check ─────────────────────────────────
+            // ?? Oversized frame check ?????????????????????????????????
             if (size > maxSize) {
                 SecurityMetrics.INSTANCE.recordPacketSizeRejected();
                 LOGGER.warn("[Krypton Security] Rejected oversized packet: {} bytes (max {}) from {}",
@@ -61,7 +61,7 @@ public class PacketSizeValidator extends ChannelInboundHandlerAdapter {
 
                 // Close connection on severely oversized packets (>4x limit)
                 if (size > maxSize * 4L) {
-                    LOGGER.warn("[Krypton Security] Severely oversized packet — closing connection to {}",
+                    LOGGER.warn("[Krypton Security] Severely oversized packet ??closing connection to {}",
                             ctx.channel().remoteAddress());
                     ctx.close();
                 }

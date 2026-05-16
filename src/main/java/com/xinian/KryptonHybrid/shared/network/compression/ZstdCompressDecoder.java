@@ -20,10 +20,10 @@ import static com.google.common.base.Preconditions.checkState;
  *
  * <h3>Wire format</h3>
  * <pre>
- *   VarInt(0)                           – packet NOT compressed
+ *   VarInt(0)                           ??packet NOT compressed
  *   raw bytes (passed through unchanged)
  *
- *   VarInt(original_uncompressed_size)  – packet IS Zstd-compressed
+ *   VarInt(original_uncompressed_size)  ??packet IS Zstd-compressed
  *   Zstd-compressed bytes
  * </pre>
  *
@@ -54,8 +54,8 @@ import static com.google.common.base.Preconditions.checkState;
  * <h4>Latency impact summary</h4>
  * <table>
  *   <tr><th>Operation</th><th>Before</th><th>After (direct)</th></tr>
- *   <tr><td>Heap alloc</td><td>3 × new byte[N]</td><td>0</td></tr>
- *   <tr><td>Data copies</td><td>2 × memcpy(N)</td><td>0</td></tr>
+ *   <tr><td>Heap alloc</td><td>3 ? new byte[N]</td><td>0</td></tr>
+ *   <tr><td>Data copies</td><td>2 ? memcpy(N)</td><td>0</td></tr>
  *   <tr><td>GC pressure</td><td>~3N bytes/packet</td><td>0</td></tr>
  * </table>
  *
@@ -112,15 +112,15 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
             // --- Uncompressed packet: pass through ---
             //
             // NOTE: Vanilla Minecraft (1.21.1 net.minecraft.network.CompressionDecoder)
-            // intentionally performs NO threshold check on the uncompressed branch — only
+            // intentionally performs NO threshold check on the uncompressed branch ??only
             // compressed packets are validated against the threshold.  We deliberately
             // mirror that behaviour to remain interoperable with peers whose effective
             // encoding threshold differs from ours, e.g.:
-            //   • the threshold was lowered mid-session (setupCompression) and an
+            //   ??the threshold was lowered mid-session (setupCompression) and an
             //     in-flight packet was already encoded under the previous threshold;
-            //   • BroadcastCompressedCache replays wire bytes captured at an earlier
+            //   ??BroadcastCompressedCache replays wire bytes captured at an earlier
             //     threshold;
-            //   • a peer using a slightly different compression threshold negotiation.
+            //   ??a peer using a slightly different compression threshold negotiation.
             //
             // We still enforce the absolute hard cap to prevent abuse via giant
             // uncompressed payloads (which the upstream frame decoder also limits).
@@ -147,7 +147,7 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         // --- Decompression bomb guard ---
         DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
 
-        // --- Fast path: direct input → direct output, zero-copy ---
+        // --- Fast path: direct input ??direct output, zero-copy ---
         if (in.isDirect() && in.nioBufferCount() == 1) {
             ByteBuf result = ctx.alloc().directBuffer(claimedUncompressedSize);
             try {

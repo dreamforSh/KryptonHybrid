@@ -34,12 +34,12 @@ import java.util.function.IntFunction;
  *
  * <h3>Optimized methods</h3>
  * <ul>
- *   <li><strong>{@code writeUtf}</strong> — single-pass write via {@link ByteBufUtil#utf8Bytes}</li>
- *   <li><strong>{@code writeVarInt}</strong> — peeled 1/2/3/4/5-byte paths, direct source writes</li>
- *   <li><strong>{@code writeVarLong}</strong> — peeled 1/2-byte paths</li>
- *   <li><strong>{@code readVarInt}</strong> — branchless 4-byte getIntLE + bit-twiddling fast path
+ *   <li><strong>{@code writeUtf}</strong> ??single-pass write via {@link ByteBufUtil#utf8Bytes}</li>
+ *   <li><strong>{@code writeVarInt}</strong> ??peeled 1/2/3/4/5-byte paths, direct source writes</li>
+ *   <li><strong>{@code writeVarLong}</strong> ??peeled 1/2-byte paths</li>
+ *   <li><strong>{@code readVarInt}</strong> ??branchless 4-byte getIntLE + bit-twiddling fast path
  *       (same algorithm as {@code Varint21FrameDecoderMixin}); eliminates per-byte conditional
- *       branches for 1–4 byte VarInts (the vast majority of Minecraft traffic)</li>
+ *       branches for 1?? byte VarInts (the vast majority of Minecraft traffic)</li>
  * </ul>
  */
 @Mixin(value = FriendlyByteBuf.class, priority = 900)
@@ -80,8 +80,8 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
      * technique from the Varint21FrameDecoder (netty#14050).
      *
      * <p>Reads the underlying {@code source} buffer directly, bypassing the vanilla
-     * {@code VarInt.read(this.source)} delegate call.  For 1–4 byte VarInts (which
-     * cover values 0–268,435,455 — virtually all Minecraft VarInts), the decode is
+     * {@code VarInt.read(this.source)} delegate call.  For 1?? byte VarInts (which
+     * cover values 0??68,435,455 ??virtually all Minecraft VarInts), the decode is
      * performed with a single {@code getIntLE}, two bitwise merges, and zero conditional
      * branches.</p>
      *

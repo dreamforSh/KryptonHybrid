@@ -25,19 +25,19 @@ import java.util.List;
  * <h3>Coalescing rules</h3>
  * <ol>
  *   <li><strong>{@link ClientboundSetEntityMotionPacket}:</strong> multiple velocity
- *       updates for the same entity — only the last is kept.</li>
+ *       updates for the same entity ??only the last is kept.</li>
  *   <li><strong>{@link ClientboundTeleportEntityPacket}:</strong> a teleport supersedes
  *       any preceding relative {@link ClientboundMoveEntityPacket} for the same entity.
- *       Multiple teleports — only the last is kept.</li>
+ *       Multiple teleports ??only the last is kept.</li>
  *   <li><strong>{@link ClientboundSetEntityDataPacket}:</strong> multiple metadata
- *       updates for the same entity — only the last is kept.</li>
+ *       updates for the same entity ??only the last is kept.</li>
  *   <li><strong>{@link ClientboundRotateHeadPacket}:</strong> multiple head-yaw
- *       updates for the same entity — only the last is kept.</li>
+ *       updates for the same entity ??only the last is kept.</li>
  *   <li><strong>{@link ClientboundMoveEntityPacket} (Rot-only):</strong> multiple
- *       pure-rotation move packets for the same entity without a teleport — only the
+ *       pure-rotation move packets for the same entity without a teleport ??only the
  *       last is kept (rotation is absolute, not cumulative).</li>
  *   <li><strong>{@link ClientboundBlockEntityDataPacket}:</strong> multiple block-entity
- *       NBT updates for the same block position — only the last is kept.</li>
+ *       NBT updates for the same block position ??only the last is kept.</li>
  * </ol>
  *
  * <h3>Algorithm</h3>
@@ -49,7 +49,7 @@ import java.util.List;
  * <h3>Performance</h3>
  * <p>Uses fastutil {@link IntOpenHashSet} for zero-boxing entity ID lookups.
  * Block-entity dedup uses a compact {@link HashMap} keyed on long-encoded BlockPos.
- * Typical list sizes are 5–30 packets, so the overhead is negligible.</p>
+ * Typical list sizes are 5??0 packets, so the overhead is negligible.</p>
  */
 public final class PacketCoalescer {
 
@@ -82,7 +82,7 @@ public final class PacketCoalescer {
         IntOpenHashSet seenHeadRot   = new IntOpenHashSet();
         // Pure-rotation MoveEntity packets: keep only the last per entity.
         IntOpenHashSet seenMoveRot   = new IntOpenHashSet();
-        // Block-entity data: long-encoded BlockPos → seen (any non-null value).
+        // Block-entity data: long-encoded BlockPos ??seen (any non-null value).
         HashMap<Long, Boolean> seenBlockEntity = null;
 
         for (int i = packets.size() - 1; i >= 0; i--) {
@@ -103,7 +103,7 @@ public final class PacketCoalescer {
                 // Merge multiple metadata updates for the same entity into a single
                 // packet.  Newer (later index) values supersede older for the same
                 // DataValue.id().  Merging (vs. drop-older) preserves any unique
-                // slots updated only in the earlier packet — important when
+                // slots updated only in the earlier packet ??important when
                 // unrelated metadata fields tick at different rates.
                 int entityId = data.id();
                 if (dataMergeIdx == null) dataMergeIdx = new Int2IntOpenHashMap();
@@ -118,7 +118,7 @@ public final class PacketCoalescer {
                     IntOpenHashSet ids = new IntOpenHashSet(laterItems.size() + earlierItems.size());
                     List<SynchedEntityData.DataValue<?>> merged =
                         new ArrayList<>(laterItems.size() + earlierItems.size());
-                    // Later items take priority — add first, mark id seen.
+                    // Later items take priority ??add first, mark id seen.
                     for (SynchedEntityData.DataValue<?> v : laterItems) {
                         ids.add(v.id());
                         merged.add(v);

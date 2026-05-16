@@ -10,7 +10,7 @@ package com.xinian.KryptonHybrid.shared.network.broadcast;
  * <p>Vanilla's {@code PacketBundlePacker} writes a singleton
  * {@code ClientboundBundleDelimiterPacket} instance both immediately before and
  * immediately after the sub-packets of a {@code ClientboundBundlePacket}.  We
- * count delimiter occurrences modulo 2 — odd count means we are currently
+ * count delimiter occurrences modulo 2 ??odd count means we are currently
  * inside a bundle.  The counter is incremented from
  * {@link com.xinian.KryptonHybrid.mixin.network.pipeline.PacketEncoderMixin}
  * when a {@code BundleDelimiterPacket} is encoded.</p>

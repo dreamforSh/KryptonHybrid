@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Temporarily quarantines IPs that repeatedly exceed the budget.</li>
  * </ol>
  *
- * <p>The handler is marked {@link ChannelHandler.Sharable} — a single instance is
+ * <p>The handler is marked {@link ChannelHandler.Sharable} ??a single instance is
  * shared across all child channels.  All state is stored in the static
  * {@link #WINDOWS} map, not in the handler instance.</p>
  */
@@ -54,7 +54,7 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
 
         InetAddress address = extractAddress(ctx);
         if (address == null) {
-            // Memory connection (singleplayer) — always allow
+            // Memory connection (singleplayer) ??always allow
             super.channelActive(ctx);
             return;
         }
@@ -91,7 +91,7 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         return null;
     }
 
-    // ── Sliding window implementation ─────────────────────────────────
+    // ?? Sliding window implementation ?????????????????????????????????
 
     static final class ConnectionBudget {
         private double tokens;

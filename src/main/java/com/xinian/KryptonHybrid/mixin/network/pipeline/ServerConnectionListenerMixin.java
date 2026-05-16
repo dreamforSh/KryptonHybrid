@@ -29,16 +29,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *
  * <h3>Pipeline order after injection</h3>
  * <pre>
- *   krypton_rate_limiter   (ConnectionRateLimiter — first, sharable)
- *   krypton_timeout        (HandshakeTimeoutHandler — stage-aware)
+ *   krypton_rate_limiter   (ConnectionRateLimiter ??first, sharable)
+ *   krypton_timeout        (HandshakeTimeoutHandler ??stage-aware)
  *   timeout                (vanilla ReadTimeoutHandler)
  *   legacy_query           (vanilla LegacyQueryHandler)
  *   splitter               (Varint21FrameDecoder)
- *   krypton_size_validator (PacketSizeValidator — after frame decode)
+ *   krypton_size_validator (PacketSizeValidator ??after frame decode)
  *   decoder                (PacketDecoder)
  *   prepender              (Varint21LengthFieldPrepender)
  *   encoder                (PacketEncoder)
- *   krypton_resource_guard (NettyResourceGuard — write side)
+ *   krypton_resource_guard (NettyResourceGuard ??write side)
  *   packet_handler         (Connection)
  * </pre>
  */
@@ -58,29 +58,29 @@ public class ServerConnectionListenerMixin {
 
         ChannelPipeline pipeline = channel.pipeline();
 
-        // ── 1. Connection rate limiter (first handler, sharable singleton) ──
+        // ?? 1. Connection rate limiter (first handler, sharable singleton) ??
         pipeline.addFirst("krypton_rate_limiter", ConnectionRateLimiter.INSTANCE);
 
-        // ── 2. Handshake timeout handler (after rate limiter) ──────────────
+        // ?? 2. Handshake timeout handler (after rate limiter) ??????????????
         pipeline.addAfter("krypton_rate_limiter",
                 HandshakeTimeoutHandler.HANDLER_NAME,
                 new HandshakeTimeoutHandler());
 
-        // ── 3. Packet size validator (after frame decoder "splitter") ──────
+        // ?? 3. Packet size validator (after frame decoder "splitter") ??????
         if (pipeline.get("splitter") != null) {
             pipeline.addAfter("splitter",
                     PacketSizeValidator.HANDLER_NAME,
                     new PacketSizeValidator());
         }
 
-        // ── 4. Netty resource guard (before packet_handler, write side) ────
+        // ?? 4. Netty resource guard (before packet_handler, write side) ????
         if (pipeline.get("packet_handler") != null) {
             pipeline.addBefore("packet_handler",
                     NettyResourceGuard.HANDLER_NAME,
                     new NettyResourceGuard());
         }
 
-        // ── 5. Initialize anomaly detector attribute ──────────────────────
+        // ?? 5. Initialize anomaly detector attribute ??????????????????????
         AnomalyDetector.get(channel);
         PacketControlState.get(channel).setPhase(PacketControlPhase.HANDSHAKE);
     }

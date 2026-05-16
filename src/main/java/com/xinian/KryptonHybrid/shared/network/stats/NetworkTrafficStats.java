@@ -148,15 +148,15 @@ public final class NetworkTrafficStats {
         startTimeMs = System.currentTimeMillis();
     }
 
-    // P1-⑤ bundle/coalesce metric APIs
+    // P1-??bundle/coalesce metric APIs
 
     /**
      * Records the result of one batch flush.
-     * @param batchPlayers number of player connections that had ≥1 packet collected
+     * @param batchPlayers number of player connections that had ?? packet collected
      *                     (i.e. distinct keys in the batch map)
      * @param emittedBundles number of those players that ended up actually receiving
      *                       a {@link net.minecraft.network.protocol.game.ClientboundBundlePacket}
-     *                       (i.e. ≥2 packets after coalescing)
+     *                       (i.e. ?? packets after coalescing)
      * @param packetsInBundles total sub-packet count across all emitted bundles
      */
     public void recordBundleBatch(int batchPlayers, int emittedBundles, int packetsInBundles) {

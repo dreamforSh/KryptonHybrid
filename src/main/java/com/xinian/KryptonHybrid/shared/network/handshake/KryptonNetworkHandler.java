@@ -1,7 +1,7 @@
 package com.xinian.KryptonHybrid.shared.network.handshake;
 
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.minecraftforge.network.handling.IPayloadContext;
 
 /**
  * Minimal handlers for Krypton Hybrid capability negotiation.

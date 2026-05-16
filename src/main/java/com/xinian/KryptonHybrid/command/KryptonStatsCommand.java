@@ -4,6 +4,7 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.xinian.KryptonHybrid.KryptonHybrid;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdSampleRecorder;
@@ -17,7 +18,6 @@ import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 
@@ -129,7 +129,7 @@ public final class KryptonStatsCommand {
     private static int executeGui(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         StatsSnapshotPayload snap = StatsSnapshotPayload.current();
-        PacketDistributor.sendToPlayer(player, snap);
+        KryptonHybrid.sendStatsSnapshot(player, snap);
         return 1;
     }
 

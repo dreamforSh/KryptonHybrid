@@ -59,7 +59,7 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
         long pending = pendingWrites.incrementAndGet();
         int maxPending = KryptonConfig.securityMaxPendingWrites;
 
-        // ── Pending queue limit ───────────────────────────────────────
+        // ?? Pending queue limit ???????????????????????????????????????
         if (pending > maxPending) {
             pendingWrites.decrementAndGet();
             SecurityMetrics.INSTANCE.recordWriteDropped();
@@ -79,7 +79,7 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
     public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
         if (KryptonConfig.securityEnabled) {
             if (!ctx.channel().isWritable()) {
-                // Channel became unwritable — start tracking
+                // Channel became unwritable ??start tracking
                 if (unwritableSince == 0) {
                     unwritableSince = System.currentTimeMillis();
                     SecurityMetrics.INSTANCE.recordWatermarkBreach();

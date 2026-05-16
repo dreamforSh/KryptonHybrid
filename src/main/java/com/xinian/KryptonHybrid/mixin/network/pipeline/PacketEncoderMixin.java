@@ -5,8 +5,8 @@ import io.netty.channel.ChannelHandlerContext;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
@@ -23,7 +23,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Injects into {@link PacketEncoder} to:
  * <ol>
  *   <li>Record per-packet-type and per-mod traffic stats for {@code /krypton stats}.</li>
- *   <li>Implement the <strong>Broadcast Serialization Cache</strong> (P0-⑧): when the
+ *   <li>Implement the <strong>Broadcast Serialization Cache</strong> (P0-??: when the
  *       same {@link Packet} object instance is encoded on the same Netty I/O thread
  *       (common in broadcast scenarios), the serialized bytes are cached on first encode
  *       and reused for subsequent encodes, skipping all VarInt/NBT/collection
@@ -102,11 +102,11 @@ public class PacketEncoderMixin {
     @Unique
     private static String kryptonfnp$resolveKey(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            net.minecraft.resources.ResourceLocation id = cp.payload().type().id();
+            net.minecraft.resources.ResourceLocation id = cp.getIdentifier();
             return "custom:" + id.getNamespace() + "/" + id.getPath();
         }
         if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            net.minecraft.resources.ResourceLocation id = sp.payload().type().id();
+            net.minecraft.resources.ResourceLocation id = sp.getIdentifier();
             return "custom:" + id.getNamespace() + "/" + id.getPath();
         }
         return packet.getClass().getSimpleName();
@@ -115,10 +115,10 @@ public class PacketEncoderMixin {
     @Unique
     private static String kryptonfnp$resolveModId(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            return cp.payload().type().id().getNamespace();
+            return cp.getIdentifier().getNamespace();
         }
         if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            return sp.payload().type().id().getNamespace();
+            return sp.getIdentifier().getNamespace();
         }
         String pkg = packet.getClass().getPackageName();
         if (pkg.startsWith("net.minecraft.")) return "minecraft";

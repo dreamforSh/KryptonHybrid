@@ -8,12 +8,11 @@ import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.common.NeoForge;
+import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.TickEvent;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -58,7 +57,7 @@ public final class KryptonStatsClientController {
     public static void init(IEventBus modEventBus) {
         modEventBus.addListener(KryptonStatsClientController::onRegisterKeyMappings);
         modEventBus.addListener(KryptonStatsClientController::onRegisterGuiLayers);
-        NeoForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientTick);
+        MinecraftForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientTick);
     }
 
     private static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
@@ -66,14 +65,15 @@ public final class KryptonStatsClientController {
         event.register(TOGGLE_HUD_KEY);
     }
 
-    private static void onRegisterGuiLayers(RegisterGuiLayersEvent event) {
+    private static void onRegisterGuiLayers(RegisterGuiOverlaysEvent event) {
         event.registerAboveAll(
-                ResourceLocation.fromNamespaceAndPath(KryptonHybrid.MODID, "stats_hud"),
-                new KryptonHudOverlay()
+                "stats_hud",
+                KryptonHudOverlay.INSTANCE
         );
     }
 
-    private static void onClientTick(ClientTickEvent.Post event) {
+    private static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null) return;
 

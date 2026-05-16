@@ -26,30 +26,30 @@ import java.util.Map;
  * individually:</p>
  * <ol>
  *   <li>Serialized to bytes (VarInt packet ID + payload)</li>
- *   <li>Framed with a VarInt length prefix (1–3 bytes overhead per packet)</li>
+ *   <li>Framed with a VarInt length prefix (1?? bytes overhead per packet)</li>
  *   <li>Compressed independently (ZSTD/LZ4/zlib)</li>
  * </ol>
  * <p>Compressing many small payloads independently yields worse ratios than compressing
  * a single concatenated payload of the same total size.  Additionally, each frame carries
  * fixed per-packet overhead (VarInt length prefix, compression header, etc.).</p>
  *
- * <h3>Solution — Tick-scoped per-player packet batching</h3>
+ * <h3>Solution ??Tick-scoped per-player packet batching</h3>
  * <p>The collector works in three phases:</p>
  * <ol>
  *   <li><strong>{@link #beginBatch()}:</strong> called at the start of
- *       {@code ChunkMap.tick()} — creates a thread-local
+ *       {@code ChunkMap.tick()} ??creates a thread-local
  *       {@code IdentityHashMap&lt;ServerPlayerConnection, List&lt;Packet&gt;&gt;}.</li>
  *   <li><strong>{@link #collect(ServerPlayerConnection, Packet)}:</strong> called by
  *       the {@code TrackedEntityBundleMixin} redirect in
- *       {@code TrackedEntity.broadcast()} — instead of sending each packet immediately,
+ *       {@code TrackedEntity.broadcast()} ??instead of sending each packet immediately,
  *       appends it to the player's collection list.  If the packet is itself a
  *       {@link ClientboundBundlePacket}, its sub-packets are unwrapped and appended
  *       individually to prevent illegal bundle nesting.</li>
  *   <li><strong>{@link #endBatchAndFlush()}:</strong> called at the end of
- *       {@code ChunkMap.tick()} — for each player that has collected packets:
+ *       {@code ChunkMap.tick()} ??for each player that has collected packets:
  *       <ul>
- *         <li>Single packet → sent directly (no bundle overhead).</li>
- *         <li>Two or more packets → wrapped in a {@link ClientboundBundlePacket}
+ *         <li>Single packet ??sent directly (no bundle overhead).</li>
+ *         <li>Two or more packets ??wrapped in a {@link ClientboundBundlePacket}
  *             and sent as a single protocol message.</li>
  *       </ul>
  *   </li>
@@ -59,25 +59,25 @@ import java.util.Map;
  * <p>{@link ClientboundBundlePacket} is a vanilla Minecraft 1.19.4+ protocol feature.
  * On the wire it is serialized as:</p>
  * <pre>
- *   [BundleDelimiter packet]   — signals "start of bundle"
- *   [Packet₁]
- *   [Packet₂]
+ *   [BundleDelimiter packet]   ??signals "start of bundle"
+ *   [Packet?]
+ *   [Packet?]
  *   ...
- *   [BundleDelimiter packet]   — signals "end of bundle"
+ *   [BundleDelimiter packet]   ??signals "end of bundle"
  * </pre>
  * <p>The client's {@link net.minecraft.network.PacketBundlePacker PacketBundlePacker}
  * collects all packets between delimiters and delivers them atomically to the game
  * thread.  From the client renderer's perspective, all bundled state changes appear
- * in the same tick — eliminating visual "tearing" (e.g. entity teleporting before
+ * in the same tick ??eliminating visual "tearing" (e.g. entity teleporting before
  * its rotation updates).</p>
  *
  * <h3>Performance benefits</h3>
  * <ul>
- *   <li><strong>Reduced framing overhead:</strong> N packets × (1–3 byte length prefix)
- *       is reduced to 2 × (delimiter frame) + 1 × (bundle frame).  For 20 packets
- *       this saves ~40–60 bytes.</li>
+ *   <li><strong>Reduced framing overhead:</strong> N packets ? (1?? byte length prefix)
+ *       is reduced to 2 ? (delimiter frame) + 1 ? (bundle frame).  For 20 packets
+ *       this saves ~40??0 bytes.</li>
  *   <li><strong>Better compression ratio:</strong> one large compressed payload
- *       compresses 10–30% better than N small payloads of the same total size,
+ *       compresses 10??0% better than N small payloads of the same total size,
  *       because ZSTD/LZ4 can exploit cross-packet redundancy (e.g. similar entity IDs,
  *       repeated VarInt patterns).</li>
  *   <li><strong>Client-side atomicity:</strong> bundled updates are applied in a single
@@ -106,7 +106,7 @@ public final class EntityBundleCollector {
      * (between {@link #beginBatch()} and {@link #endBatchAndFlush()}).
      *
      * <p>Uses {@link IdentityHashMap} because {@link ServerPlayerConnection} instances
-     * are singletons per player — identity comparison is both correct and faster than
+     * are singletons per player ??identity comparison is both correct and faster than
      * {@code equals()} / {@code hashCode()} dispatch through the interface.</p>
      */
     private static final ThreadLocal<Map<ServerPlayerConnection, List<Packet<?>>>> BATCH =
@@ -186,7 +186,7 @@ public final class EntityBundleCollector {
      * </ul>
      *
      * <p>This method is safe to call even if no batch is active (e.g. during
-     * exception recovery) — it simply returns immediately.</p>
+     * exception recovery) ??it simply returns immediately.</p>
      */
     @SuppressWarnings("unchecked")
     public static void endBatchAndFlush() {
@@ -205,7 +205,7 @@ public final class EntityBundleCollector {
             ServerPlayerConnection conn = entry.getKey();
             List<Packet<?>> packets = entry.getValue();
 
-            // P1-③ Packet coalescing: deduplicate redundant packets before sending
+            // P1-??Packet coalescing: deduplicate redundant packets before sending
             PacketCoalescer.coalesce(packets);
 
             // P1 Motion/Teleport delta filter: drop visually identical updates
@@ -224,7 +224,7 @@ public final class EntityBundleCollector {
                 packetsInBundles += packets.size();
                 // Multiple packets: wrap in a BundlePacket
                 conn.send(new ClientboundBundlePacket(
-                        (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
+                        (Iterable<Packet<ClientGamePacketListener>>) (Iterable<?>) packets
                 ));
             }
         }

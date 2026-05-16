@@ -18,7 +18,7 @@ import java.util.function.BiConsumer;
  *
  * <p>Buffers "forget chunk" events instead of sending them immediately. If the
  * player re-enters a cached chunk's range before the entry expires, the chunk
- * resend is skipped entirely鈥攖he client still has the data. Entries are evicted
+ * resend is skipped entirely??he client still has the data. Entries are evicted
  * by timeout, distance, or size limit. All access is server-thread-only.</p>
  *
  * <p>Adapted from NotEnoughBandwidth's {@code CachedChunkTrackingView} for the
@@ -97,7 +97,7 @@ public final class DelayedChunkCache {
         if (e == null) return false;
 
         if (!e.dimension.equals(dimension)) {
-            // Stale cache from a previous dimension — client has already unloaded
+            // Stale cache from a previous dimension ??client has already unloaded
             // those chunks. Treat as miss and reset the slot for the new dim.
             e.entries.clear();
             e.dimension = dimension;
@@ -131,7 +131,7 @@ public final class DelayedChunkCache {
             if (!e.dimension.equals(dimension)) {
                 // Player returned to this dim after leaving for another;
                 // any entries here are stale (cached in the old dim before the
-                // player moved away). Silent clear — see PlayerEntry javadoc.
+                // player moved away). Silent clear ??see PlayerEntry javadoc.
                 e.entries.clear();
                 e.dimension = dimension;
                 continue;

@@ -11,15 +11,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 /**
  * Optimizes {@link VarInt} hot paths:
  *
- * <h4>1. {@code getByteSize(int)} — lookup-table replacement</h4>
+ * <h4>1. {@code getByteSize(int)} ??lookup-table replacement</h4>
  * <p>Replaces the vanilla loop with
  * {@link VarIntUtil#getVarIntLength(int)}, a single array lookup indexed by
  * {@link Integer#numberOfLeadingZeros}.</p>
  *
- * <h4>2. {@code read(ByteBuf)} — branchless bit-twiddling fast path</h4>
+ * <h4>2. {@code read(ByteBuf)} ??branchless bit-twiddling fast path</h4>
  * <p>Replaces the vanilla byte-at-a-time loop with
  * {@link VarIntUtil#readVarInt(ByteBuf)}, which reads 4 bytes in one
- * {@code getIntLE} and decodes 1–4 byte VarInts with zero branches.
+ * {@code getIntLE} and decodes 1?? byte VarInts with zero branches.
  * This is the same algorithm used in {@code Varint21FrameDecoderMixin}
  * (from <a href="https://github.com/netty/netty/pull/14050">netty#14050</a>),
  * now applied to the general {@code VarInt.read()} hot path used by packet

@@ -23,7 +23,7 @@ import java.util.List;
  * nibble array, regardless of content. Sky-light sections above the surface are nearly
  * always uniform (all nibble values == 15, stored as 0xFF bytes). In a standard
  * overworld chunk with a view distance of 12, up to 20 such "all-max" sections can be
- * present, costing {@code 20 脳 2048 = 40 960} bytes of redundant light payload per chunk
+ * present, costing {@code 20 ??2048 = 40 960} bytes of redundant light payload per chunk
  * before connection-level compression.</p>
  *
  * <h3>Differences from 1.19.2</h3>
@@ -31,14 +31,14 @@ import java.util.List;
  * {@link ClientboundLightUpdatePacketData} in 1.20.1. This class therefore omits it
  * entirely. The wire format is otherwise identical to the 1.19.2 variant.</p>
  *
- * <h3>Solution 鈥?Uniform-RLE light encoding</h3>
+ * <h3>Solution ??Uniform-RLE light encoding</h3>
  * <p>When {@link KryptonConfig#lightOptEnabled} is {@code true} and net savings are
  * positive, the {@code write()} method is replaced with a Krypton-aware format
  * identified by a leading {@code 0x4B} ('K') marker byte:</p>
  * <pre>
- *   [0x4B]           鈥?Krypton marker (1 byte)
- *   [skyYMask]       鈥?BitSet (FriendlyByteBuf.writeBitSet)
- *   [blockYMask]     鈥?BitSet
+ *   [0x4B]           ??Krypton marker (1 byte)
+ *   [skyYMask]       ??BitSet (FriendlyByteBuf.writeBitSet)
+ *   [blockYMask]     ??BitSet
  *   [emptySkyYMask]    BitSet
  *   [emptyBlockYMask]  BitSet
  *   [skyCount]         VarInt
@@ -61,7 +61,7 @@ import java.util.List;
  *
  * <h3>Compatibility</h3>
  * <p>This optimization requires Krypton Hybrid on <strong>both</strong> the server and the
- * client 鈥?consistent with the existing ZSTD compression requirement. Vanilla clients
+ * client ??consistent with the existing ZSTD compression requirement. Vanilla clients
  * cannot connect to a Krypton server anyway due to the compression algorithm mismatch.</p>
  */
 @Mixin(ClientboundLightUpdatePacketData.class)

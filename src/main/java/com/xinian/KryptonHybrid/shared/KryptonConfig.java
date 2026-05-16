@@ -6,16 +6,16 @@ import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
  * Loader-agnostic configuration value holder for KryptonFNP.
  *
  * <p>This class contains only plain {@code volatile} fields that any loader-specific
- * config implementation (Forge {@code ForgeConfigSpec}, Fabric Cloth Config, 鈥? can
+ * config implementation (Forge {@code ForgeConfigSpec}, Fabric Cloth Config, ?? can
  * write to after the config file has been read. All runtime code in the {@code common}
  * module reads values from here, keeping it free of loader-specific APIs.</p>
  *
  * <h3>Compression algorithm notes</h3>
  * <ul>
- *   <li>{@link #compressionAlgorithm} 鈥?selects the packet compression algorithm.
+ *   <li>{@link #compressionAlgorithm} ??selects the packet compression algorithm.
  *       <strong>Both</strong> the server and the connected client must use the same
  *       algorithm; mixing algorithms across a connection will corrupt the session.</li>
- *   <li>{@link #zstdLevel} 鈥?Zstd compression level (1 = fastest / largest output,
+ *   <li>{@link #zstdLevel} ??Zstd compression level (1 = fastest / largest output,
  *       22 = slowest / smallest output). Backed by zstd-jni (native) which fully
  *       supports the Zstandard level range. Only applies when
  *       {@link #compressionAlgorithm} is {@link com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm#ZSTD}.</li>
@@ -23,7 +23,7 @@ import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
  *
  * <p><strong>Note on LZ4 level:</strong> The aircompressor {@code Lz4Compressor} used
  * for LZ4 does not expose a configurable acceleration level. LZ4 always runs at its
- * library-internal default (鈮埪?). Per-level tuning for LZ4 is reserved for a future
+ * library-internal default (???). Per-level tuning for LZ4 is reserved for a future
  * native implementation.</p>
  */
 public final class KryptonConfig {
@@ -57,7 +57,7 @@ public final class KryptonConfig {
      * Byte-size threshold above which the adaptive large-packet compression level
      * ({@link #zstdAdaptiveLargeLevel}) is used instead of {@link #zstdLevel}.
      * Only effective when {@link #zstdAdaptiveLargeLevel} &gt; 0.
-     * Default: 8192 (8 KiB — typical chunk packet size).
+     * Default: 8192 (8 KiB ??typical chunk packet size).
      */
     public static volatile int zstdAdaptiveLargeThreshold = 8192;
 
@@ -257,7 +257,7 @@ public final class KryptonConfig {
     /** Seconds before a cached chunk is forcibly evicted and untracked. Default: 30. */
     public static volatile int dccTimeoutSeconds = 30;
 
-    // --- P0-⑧ Broadcast Serialization Cache ---
+    // --- P0-??Broadcast Serialization Cache ---
 
     /**
      * Whether to enable the broadcast serialization cache.  When enabled, the
@@ -275,7 +275,7 @@ public final class KryptonConfig {
      * If {@code true}, sub-packets emitted between {@code BundleDelimiterPacket}
      * frames are forcibly compressed even when their individual size is below
      * {@link #zstdLevel}-paired compression threshold.  Combined with a loaded
-     * Zstd dictionary, this typically reduces total bundle wire size by 10–25%
+     * Zstd dictionary, this typically reduces total bundle wire size by 10??5%
      * because small sub-packets gain access to the shared dictionary entropy.
      * The compressor falls back to raw output if compressed size would exceed
      * uncompressed size, so enabling this never causes wire growth.
@@ -317,7 +317,7 @@ public final class KryptonConfig {
 
     /**
      * Deferred-flush delay in milliseconds used when {@link #microBatchFlushEnabled}
-     * is true.  Range 1–20 ms; recommended 5 ms.  Default: {@code 5}.
+     * is true.  Range 1??0 ms; recommended 5 ms.  Default: {@code 5}.
      */
     public static volatile int microBatchFlushDelayMs = 5;
 
@@ -328,7 +328,7 @@ public final class KryptonConfig {
      * {@code ClientboundTeleportEntityPacket} updates whose components have not
      * changed by more than {@link #motionDeltaThreshold} encoded units (motion)
      * or {@link #teleportDeltaSquared} squared blocks (teleport) since the last
-     * sent value for that entity → that player are dropped.  Significantly cuts
+     * sent value for that entity ??that player are dropped.  Significantly cuts
      * projectile/dropped-item packet count.
      * Default: {@code true}.
      */
@@ -336,33 +336,33 @@ public final class KryptonConfig {
 
     /**
      * Encoded-unit per-axis tolerance for motion delta filtering.  The vanilla
-     * encoding is {@code (int)(velocity * 8000)} so 80 units ≈ 0.01 blocks/tick.
-     * Default: {@code 40} (≈ 0.005 b/t — visually imperceptible).
+     * encoding is {@code (int)(velocity * 8000)} so 80 units ??0.01 blocks/tick.
+     * Default: {@code 40} (??0.005 b/t ??visually imperceptible).
      */
     public static volatile int motionDeltaThreshold = 40;
 
     /**
-     * Squared-distance tolerance (blocks²) for teleport delta filtering.  Default:
+     * Squared-distance tolerance (blocks?) for teleport delta filtering.  Default:
      * {@code 1.0E-4} (0.01-block radius).
      */
     public static volatile double teleportDeltaSquared = 1.0E-4;
 
-    // --- P1-③ Packet Coalescing ---
+    // --- P1-??Packet Coalescing ---
 
     /**
      * Whether to deduplicate redundant packets within the entity-tracking bundle
      * before sending.  When enabled, the coalescer removes superseded packets:
      * <ul>
-     *   <li>Multiple velocity updates for the same entity → keep last only</li>
-     *   <li>Multiple teleports for the same entity → keep last only</li>
+     *   <li>Multiple velocity updates for the same entity ??keep last only</li>
+     *   <li>Multiple teleports for the same entity ??keep last only</li>
      *   <li>Teleport supersedes relative move packets for the same entity</li>
-     *   <li>Multiple entity data updates for the same entity → keep last only</li>
+     *   <li>Multiple entity data updates for the same entity ??keep last only</li>
      * </ul>
      * Default: {@code true}.
      */
     public static volatile boolean packetCoalescingEnabled = true;
 
-    // --- P1-① Block Entity NBT Delta Sync ---
+    // --- P1-??Block Entity NBT Delta Sync ---
 
     /**
      * Whether to enable per-player NBT delta encoding for block entity data packets.

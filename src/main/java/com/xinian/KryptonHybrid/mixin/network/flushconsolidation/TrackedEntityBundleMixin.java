@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * <p>{@code ChunkMap.TrackedEntity.broadcast(Packet)} iterates over all
  * {@link ServerPlayerConnection}s in the entity's {@code seenBy} set and calls
  * {@link ServerPlayerConnection#send(Packet)} for each one.  This is the primary
- * fan-out point for entity update packets — a single entity's movement/metadata
+ * fan-out point for entity update packets ??a single entity's movement/metadata
  * change results in N individual {@code send()} calls for N tracking players.</p>
  *
  * <h3>Redirect behavior</h3>
@@ -35,14 +35,14 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * <h3>Why {@code TrackedEntity.broadcast()} and not {@code ServerEntity.sendChanges()}?</h3>
  * <p>{@code broadcast()} is the single fan-out point where one packet becomes N sends.
  * Intercepting here captures <em>all</em> entity update paths: position, rotation,
- * velocity, metadata, passengers, head rotation, and hurt animation — without needing
+ * velocity, metadata, passengers, head rotation, and hurt animation ??without needing
  * to modify each individual packet creation site in {@code sendChanges()}.</p>
  *
  * <h3>Self-send for player entities</h3>
  * <p>{@code ServerEntity.broadcastAndSend()} and {@code TrackedEntity.broadcastAndSend()}
  * also send a copy to the entity's own player connection via a direct
  * {@code connection.send()} call <em>outside</em> of {@code broadcast()}.  This
- * self-send is intentionally not intercepted — it is a single packet per player-entity
+ * self-send is intentionally not intercepted ??it is a single packet per player-entity
  * per change and does not benefit meaningfully from bundling.  The flush consolidation
  * system already ensures this packet is batched at the Netty channel level.</p>
  *
@@ -58,7 +58,7 @@ public class TrackedEntityBundleMixin {
      * a collection window is active.
      *
      * <p>The redirect target matches the interface method on
-     * {@link ServerPlayerConnection} — regardless of the concrete implementation
+     * {@link ServerPlayerConnection} ??regardless of the concrete implementation
      * class ({@code ServerGamePacketListenerImpl}, etc.).</p>
      *
      * @param conn   the player connection being sent to
@@ -73,7 +73,7 @@ public class TrackedEntityBundleMixin {
     )
     private void krypton$collectForBundle(ServerPlayerConnection conn, Packet<?> packet) {
         if (!EntityBundleCollector.collect(conn, packet)) {
-            // No active batch — send immediately (normal non-tick code path)
+            // No active batch ??send immediately (normal non-tick code path)
             conn.send(packet);
         }
     }

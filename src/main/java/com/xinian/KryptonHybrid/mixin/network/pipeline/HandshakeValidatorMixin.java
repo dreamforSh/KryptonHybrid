@@ -8,8 +8,8 @@ import com.xinian.KryptonHybrid.shared.network.security.HandshakeTimeoutHandler;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeValidator;
 import com.xinian.KryptonHybrid.shared.network.security.StatusRequestGuard;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.handshake.ClientIntent;
 import net.minecraft.network.protocol.handshake.ClientIntentionPacket;
 import net.minecraft.server.network.ServerHandshakePacketListenerImpl;
 import org.spongepowered.asm.mixin.Final;
@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <ol>
  *   <li>Validate the handshake packet (protocol version, server address) via
  *       {@link HandshakeValidator}.</li>
- *   <li>Advance the {@link HandshakeTimeoutHandler} from HANDSHAKE → LOGIN stage.</li>
+ *   <li>Advance the {@link HandshakeTimeoutHandler} from HANDSHAKE ??LOGIN stage.</li>
  * </ol>
  */
 @Mixin(ServerHandshakePacketListenerImpl.class)
@@ -37,11 +37,11 @@ public class HandshakeValidatorMixin {
     private void krypton$validateHandshake(ClientIntentionPacket packet, CallbackInfo ci) {
         if (!KryptonConfig.securityEnabled) return;
 
-        // ── Validate handshake fields ─────────────────────────────────
+        // ?? Validate handshake fields ?????????????????????????????????
         HandshakeValidator.ValidationResult result = HandshakeValidator.validate(
-                packet.protocolVersion(),
-                packet.hostName(),
-                packet.port());
+                packet.getProtocolVersion(),
+                packet.getHostName(),
+                packet.getPort());
 
         if (!result.valid()) {
             // Record anomaly
@@ -56,8 +56,8 @@ public class HandshakeValidatorMixin {
             return;
         }
 
-        if (packet.intention() == ClientIntent.STATUS
-                && !StatusRequestGuard.allowStatusPing(this.connection.channel(), packet.hostName())) {
+        if (packet.getIntention() == ConnectionProtocol.STATUS
+                && !StatusRequestGuard.allowStatusPing(this.connection.channel(), packet.getHostName())) {
             if (KryptonConfig.securityStatusPingSilentDrop) {
                 this.connection.channel().close();
             } else {
@@ -67,11 +67,11 @@ public class HandshakeValidatorMixin {
             return;
         }
 
-        if (packet.intention() == ClientIntent.STATUS) {
+        if (packet.getIntention() == ConnectionProtocol.STATUS) {
             return;
         }
 
-        // ── Advance timeout to LOGIN stage ────────────────────────────
+        // ?? Advance timeout to LOGIN stage ????????????????????????????
         HandshakeTimeoutHandler.advanceStage(
                 this.connection.channel(), HandshakeTimeoutHandler.Stage.LOGIN);
         PacketControlState.get(this.connection.channel()).setPhase(PacketControlPhase.LOGIN);

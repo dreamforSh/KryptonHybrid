@@ -38,7 +38,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * <p>The two optimizations operate at different layers and are complementary:</p>
  * <ol>
  *   <li><strong>Bundle coalescing (protocol layer):</strong> N individual packets
- *       become 1 BundlePacket — reducing per-packet framing overhead and improving
+ *       become 1 BundlePacket ??reducing per-packet framing overhead and improving
  *       compression ratio (one large payload compresses better than N small ones).</li>
  *   <li><strong>Flush consolidation (Netty layer):</strong> the single BundlePacket
  *       (plus any unbatched packets) is buffered at the channel level and flushed in
@@ -52,10 +52,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *           [3] Disable auto-flush for all players
  *           [4] Open bundle collection window
  *
- *   BODY:   Entity tracking updates → packets collected by TrackedEntityBundleMixin
+ *   BODY:   Entity tracking updates ??packets collected by TrackedEntityBundleMixin
  *
- *   RETURN: [5] Close bundle window → send BundlePackets (buffered, not flushed)
- *           [6] Re-enable auto-flush → single kernel flush per player
+ *   RETURN: [5] Close bundle window ??send BundlePackets (buffered, not flushed)
+ *           [6] Re-enable auto-flush ??single kernel flush per player
  * </pre>
  *
  * @see EntityBundleCollector
@@ -75,17 +75,17 @@ public abstract class ChunkMapFlushMixin {
      * entity-tracking {@code tick()} rather than the chunk-loading
      * {@code tick(BooleanSupplier)} overload.</p>
      *
-     * <p><strong>Exception recovery (steps 1–2):</strong> a recovery flush of both
+     * <p><strong>Exception recovery (steps 1??):</strong> a recovery flush of both
      * the bundle collector and auto-flush is performed first, so that any state left
      * by an exception in a previous tick (preventing the RETURN inject from firing)
      * is cleaned up before the new consolidation window begins.</p>
      */
     @Inject(method = "tick()V", at = @At("HEAD"))
     private void tick$disableAutoFlush(CallbackInfo ci) {
-        // Step 1: Recovery — flush any stale bundle batch from a previous failed tick
+        // Step 1: Recovery ??flush any stale bundle batch from a previous failed tick
         EntityBundleCollector.endBatchAndFlush();
 
-        // Step 2–3: Recovery re-enable then disable auto-flush
+        // Step 2??: Recovery re-enable then disable auto-flush
         for (ServerPlayer player : this.level.players()) {
             AutoFlushUtil.setAutoFlush(player, true);
             AutoFlushUtil.setAutoFlush(player, false);
@@ -107,7 +107,7 @@ public abstract class ChunkMapFlushMixin {
      */
     @Inject(method = "tick()V", at = @At("RETURN"))
     private void tick$reenableAutoFlush(CallbackInfo ci) {
-        // Step 5: Close bundle window — BundlePackets are written but not flushed
+        // Step 5: Close bundle window ??BundlePackets are written but not flushed
         EntityBundleCollector.endBatchAndFlush();
 
         // Step 6: Either schedule a deferred (cross-tick coalescing) flush or
@@ -119,7 +119,7 @@ public abstract class ChunkMapFlushMixin {
                 MicroBatchFlusher.scheduleFlush(player);
             }
         } else {
-            // Re-enable auto-flush — triggers single kernel flush
+            // Re-enable auto-flush ??triggers single kernel flush
             for (ServerPlayer player : this.level.players()) {
                 AutoFlushUtil.setAutoFlush(player, true);
             }

@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
  *   <li><strong>Absolute size cap:</strong> claimed uncompressed size must not
  *       exceed {@link KryptonConfig#securityMaxDecompressedBytes}.</li>
  *   <li><strong>Ratio check:</strong>
- *       {@code claimedUncompressed / compressedSize ≤ maxCompressionRatio}.
+ *       {@code claimedUncompressed / compressedSize ??maxCompressionRatio}.
  *       Default ratio limit: 100:1.</li>
  * </ol>
  *

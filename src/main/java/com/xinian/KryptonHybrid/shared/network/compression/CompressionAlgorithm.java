@@ -24,7 +24,7 @@ public enum CompressionAlgorithm {
      * <p>Zstd typically achieves a significantly better compression ratio than zlib at
      * comparable or faster speeds, making it the best general-purpose choice for
      * servers that are bandwidth-constrained. Supports configurable compression levels
-     * (1鈥?2) via {@link ZstdUtil}.</p>
+     * (1??2) via {@link ZstdUtil}.</p>
      *
      * <p>Requires the zstd-jni native library to load successfully;
      * {@link ZstdUtil#AVAILABLE} must be {@code true}.</p>

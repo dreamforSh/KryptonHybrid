@@ -16,14 +16,14 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
  * {@link net.minecraft.network.PacketEncoder}, but connections sharing the same
  * Netty I/O event-loop thread will encode the same Packet instance sequentially.
  * By caching the serialized bytes keyed on object identity, subsequent encodes
- * of the same Packet on the same thread become a simple byte copy — skipping all
+ * of the same Packet on the same thread become a simple byte copy ??skipping all
  * VarInt/NBT/collection serialization.</p>
  *
  * <h3>Thread safety</h3>
  * <p>All state is {@link ThreadLocal}.  With {@code NioEventLoopGroup(0)}, Netty
- * creates {@code availableProcessors × 2} I/O threads.  Each thread handles a
+ * creates {@code availableProcessors ? 2} I/O threads.  Each thread handles a
  * subset of connections.  The cache is effective within each thread's connection
- * set — typically {@code totalPlayers / (2 × cores)} connections per thread.</p>
+ * set ??typically {@code totalPlayers / (2 ? cores)} connections per thread.</p>
  *
  * <h3>Lifecycle</h3>
  * <p>The cache is bounded by {@link #MAX_ENTRIES}.  When the limit is reached,

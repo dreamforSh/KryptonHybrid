@@ -60,7 +60,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         }
         buf.readByte(); // consume 0x4B marker
 
-        // --- Heightmaps (XOR-delta → CompoundTag) ---
+        // --- Heightmaps (XOR-delta ??CompoundTag) ---
         CompoundTag heightmaps = ChunkDataCodec.readHeightmaps(buf);
 
         // --- Blocks-only buffer ---

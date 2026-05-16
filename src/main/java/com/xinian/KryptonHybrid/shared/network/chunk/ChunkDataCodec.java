@@ -139,15 +139,15 @@ public final class ChunkDataCodec {
             // SingleValuePalette: one VarInt (the palette entry)
             VarInt.read(buf);
         } else if (bpe <= globalThreshold) {
-            // LinearPalette or HashMapPalette: VarInt(size) + size × VarInt(entry)
+            // LinearPalette or HashMapPalette: VarInt(size) + size ? VarInt(entry)
             int paletteSize = VarInt.read(buf);
             for (int i = 0; i < paletteSize; i++) {
                 VarInt.read(buf);
             }
         }
-        // else: GlobalPalette — no palette data
+        // else: GlobalPalette ??no palette data
 
-        // Storage: VarInt(longCount) + longCount × 8 bytes
+        // Storage: VarInt(longCount) + longCount ? 8 bytes
         int longCount = VarInt.read(buf);
         buf.skipBytes(longCount * 8);
 

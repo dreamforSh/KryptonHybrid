@@ -4,7 +4,7 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.util.Mth;
 
 /**
- * Optimized VarInt utilities — both size calculation and read/write fast paths.
+ * Optimized VarInt utilities ??both size calculation and read/write fast paths.
  *
  * <h3>Size calculation</h3>
  * <p>Maps VarInt byte sizes to a lookup table corresponding to the number of bits in
@@ -20,28 +20,26 @@ import net.minecraft.util.Mth;
  *
  * <h4>How it works</h4>
  * <ol>
- *   <li>Read 4 bytes as a little-endian int ({@code getIntLE}) — no reader index
+ *   <li>Read 4 bytes as a little-endian int ({@code getIntLE}) ??no reader index
  *       change yet.</li>
  *   <li>Compute {@code atStop = ~raw & 0x808080}: each byte's MSB (continuation bit)
  *       is inverted.  The lowest set bit in {@code atStop} marks the first
- *       non-continuation byte — the final byte of the VarInt.</li>
+ *       non-continuation byte ??the final byte of the VarInt.</li>
  *   <li>If {@code atStop == 0}, all 4 bytes have continuation bits set, so the VarInt
- *       is 5 bytes long — fall through to the slow path (handles the 5th byte and
+ *       is 5 bytes long ??fall through to the slow path (handles the 5th byte and
  *       the "VarInt too big" error).</li>
- *   <li>Advance the reader index by {@code (trailingZeros(atStop) + 1) / 8} — the
+ *   <li>Advance the reader index by {@code (trailingZeros(atStop) + 1) / 8} ??the
  *       exact number of VarInt bytes consumed.</li>
  *   <li>Mask out bytes beyond the VarInt using
  *       {@code raw & (atStop ^ (atStop - 1))}.</li>
  *   <li>Strip continuation bits with two rounds of merge-shift:
  *       <ul>
- *         <li>Round 1: remove bit 7 from bytes 0 and 2 →
- *             {@code (p & 0x007F007F) | ((p & 0x7F00) >> 1)}</li>
- *         <li>Round 2: remove gap between the two 14-bit halves →
- *             {@code (p & 0x3FFF) | ((p & 0x3FFF0000) >> 2)}</li>
+ *         <li>Round 1: remove bit 7 from bytes 0 and 2 ?? *             {@code (p & 0x007F007F) | ((p & 0x7F00) >> 1)}</li>
+ *         <li>Round 2: remove gap between the two 14-bit halves ?? *             {@code (p & 0x3FFF) | ((p & 0x3FFF0000) >> 2)}</li>
  *       </ul></li>
  * </ol>
  *
- * <p>The result is a fully decoded VarInt with zero branches for 1–4 byte values
+ * <p>The result is a fully decoded VarInt with zero branches for 1?? byte values
  * (the vast majority of Minecraft traffic).</p>
  */
 public class VarIntUtil {

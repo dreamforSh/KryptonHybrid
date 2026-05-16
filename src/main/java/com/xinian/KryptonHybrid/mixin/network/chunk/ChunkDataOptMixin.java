@@ -58,8 +58,8 @@ import java.util.List;
  *   --- Biome data (compact) ---
  *   VarInt  section_count
  *   Per section:
- *     0x01 + VarInt(biomeId)           — single-value section
- *     0x00 + VarInt(len) + raw bytes   — multi-value section
+ *     0x01 + VarInt(biomeId)           ??single-value section
+ *     0x00 + VarInt(len) + raw bytes   ??multi-value section
  *
  *   --- Block entities (unchanged) ---
  *   LIST_STREAM_CODEC encoded

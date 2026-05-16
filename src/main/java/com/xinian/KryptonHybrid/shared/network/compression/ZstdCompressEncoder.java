@@ -5,8 +5,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastCompressedCache;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
@@ -24,14 +24,14 @@ import java.nio.ByteBuffer;
  * <h3>Wire format</h3>
  * <p>Intentionally mirrors vanilla {@link net.minecraft.network.CompressionEncoder}:</p>
  * <pre>
- *   VarInt(0)                             – packet NOT compressed (size &lt; threshold)
+ *   VarInt(0)                             ??packet NOT compressed (size &lt; threshold)
  *   raw bytes
  *
- *   VarInt(original_uncompressed_size)    – packet IS compressed
+ *   VarInt(original_uncompressed_size)    ??packet IS compressed
  *   Zstd-compressed bytes
  * </pre>
  *
- * <h3>Latency optimizations over the naïve implementation</h3>
+ * <h3>Latency optimizations over the na?ve implementation</h3>
  *
  * <h4>1. Zero-copy DirectByteBuffer fast path</h4>
  * <p>When both the input {@code msg} and the output {@code out} are backed by direct
@@ -40,8 +40,8 @@ import java.nio.ByteBuffer;
  * directly to libzstd.  This eliminates:</p>
  * <ul>
  *   <li>Two {@code new byte[]} heap allocations per packet (input copy + output buffer)</li>
- *   <li>Two full-payload {@code memcpy} operations (ByteBuf → byte[] → ByteBuf)</li>
- *   <li>GC pressure from short-lived byte arrays at 20+ Hz × N players</li>
+ *   <li>Two full-payload {@code memcpy} operations (ByteBuf ??byte[] ??ByteBuf)</li>
+ *   <li>GC pressure from short-lived byte arrays at 20+ Hz ? N players</li>
  * </ul>
  *
  * <h4>2. Per-handler reusable scratch buffers (heap fallback)</h4>
@@ -67,8 +67,8 @@ import java.nio.ByteBuffer;
  * <h4>Latency impact summary</h4>
  * <table>
  *   <tr><th>Operation</th><th>Before</th><th>After (direct)</th></tr>
- *   <tr><td>Heap alloc</td><td>2 × new byte[N]</td><td>0</td></tr>
- *   <tr><td>Data copies</td><td>2 × memcpy(N)</td><td>0</td></tr>
+ *   <tr><td>Heap alloc</td><td>2 ? new byte[N]</td><td>0</td></tr>
+ *   <tr><td>Data copies</td><td>2 ? memcpy(N)</td><td>0</td></tr>
  *   <tr><td>Frame header</td><td>+8 B content-size</td><td>omitted</td></tr>
  *   <tr><td>GC pressure</td><td>~2N bytes/packet</td><td>0</td></tr>
  * </table>
@@ -105,13 +105,13 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         int uncompressedSize = msg.readableBytes();
         int startWireIndex = out.writerIndex();
 
-        // ── Pull the (optional) Packet reference handed off by PacketEncoderMixin ──
+        // ?? Pull the (optional) Packet reference handed off by PacketEncoderMixin ??
         Object currentPacket = BroadcastSerializationCache.pollCurrentPacket();
         Packet<?> packet = (currentPacket instanceof Packet<?> p) ? p : null;
         ZstdSampleRecorder.maybeRecord(packet, msg, uncompressedSize);
 
-        // ── P0 Compressed-bytes broadcast cache: short-circuit if the same Packet
-        //    instance was already compressed earlier on this Netty I/O thread. ──
+        // ?? P0 Compressed-bytes broadcast cache: short-circuit if the same Packet
+        //    instance was already compressed earlier on this Netty I/O thread. ??
         if (packet != null && BroadcastCompressedCache.isCacheable(packet)) {
             byte[] cachedWire = BroadcastCompressedCache.get(packet);
             if (cachedWire != null) {
@@ -123,8 +123,8 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             }
         }
 
-        // ── P0 Bundle forced-compression: lower the threshold for sub-packets
-        //    bracketed by BundleDelimiterPacket frames. ──
+        // ?? P0 Bundle forced-compression: lower the threshold for sub-packets
+        //    bracketed by BundleDelimiterPacket frames. ??
         int effectiveThreshold = threshold;
         if (KryptonConfig.bundleAlwaysCompress && BundleEncodeContext.isInBundle()) {
             effectiveThreshold = Math.max(1, KryptonConfig.bundleCompressMinBytes);
@@ -151,7 +151,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         wrappedOut.writeVarInt(uncompressedSize);
         int headerLen = out.writerIndex() - headerStart;
 
-        // --- Fast path: both buffers are direct → zero-copy native compression ---
+        // --- Fast path: both buffers are direct ??zero-copy native compression ---
         if (msg.isDirect() && msg.nioBufferCount() == 1
                 && out.isDirect() && out.nioBufferCount() == 1) {
             // Ensure the output buffer has enough writable capacity
@@ -284,11 +284,11 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
     private static String kryptonResolveKey(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            ResourceLocation id = cp.payload().type().id();
+            ResourceLocation id = cp.getIdentifier();
             return "custom:" + id.getNamespace() + "/" + id.getPath();
         }
         if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            ResourceLocation id = sp.payload().type().id();
+            ResourceLocation id = sp.getIdentifier();
             return "custom:" + id.getNamespace() + "/" + id.getPath();
         }
         return packet.getClass().getSimpleName();
@@ -296,10 +296,10 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
     private static String kryptonResolveModId(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            return cp.payload().type().id().getNamespace();
+            return cp.getIdentifier().getNamespace();
         }
         if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            return sp.payload().type().id().getNamespace();
+            return sp.getIdentifier().getNamespace();
         }
         String pkg = packet.getClass().getPackageName();
         if (pkg.startsWith("net.minecraft.")) return "minecraft";

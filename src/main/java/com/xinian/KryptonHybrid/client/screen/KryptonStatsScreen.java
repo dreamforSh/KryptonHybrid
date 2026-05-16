@@ -62,7 +62,7 @@ public final class KryptonStatsScreen extends Screen {
         tabButtons.clear();
         activePanels.clear();
 
-        // ─── Theme toggle (top-right, sized to content) ───
+        // ??? Theme toggle (top-right, sized to content) ???
         Component themeText = themeLabel();
         int themeW = Math.max(72, this.font.width(themeText) + 16);
         int topBtnH = 18;
@@ -80,7 +80,7 @@ public final class KryptonStatsScreen extends Screen {
                 Component.translatable("gui.krypton_hybrid.button.settings"),
                 b -> this.minecraft.setScreen(new KryptonStatsSettingsScreen(this))));
 
-        // ─── Tab strip — adaptive width based on longest label ───
+        // ??? Tab strip ??adaptive width based on longest label ???
         Tab[] tabs = Tab.values();
         int gap = 6;
         int sidePad = 12;
@@ -111,7 +111,7 @@ public final class KryptonStatsScreen extends Screen {
 
         rebuildPanels();
 
-        // ─── Action bar (bottom-centered, sized by translated label width) ───
+        // ??? Action bar (bottom-centered, sized by translated label width) ???
         int btnH = Math.max(20, this.font.lineHeight + 10);
         int btnY = this.height - btnH - 8;
         Component refreshText = Component.translatable("gui.krypton_hybrid.button.refresh");
@@ -135,10 +135,10 @@ public final class KryptonStatsScreen extends Screen {
 
     private void rebuildPanels() {
         activePanels.clear();
-        // Header consumes y∈[0..32], tab strip starts at y=36 with height ≈ font+8.
+        // Header consumes y?[0..32], tab strip starts at y=36 with height ??font+8.
         int tabBottom = 36 + Math.max(18, this.font.lineHeight + 8);
         int contentTop = tabBottom + 10;
-        // Footer reserves the action button row (height ≈ font+10) + hint line + padding.
+        // Footer reserves the action button row (height ??font+10) + hint line + padding.
         int footerReserve = Math.max(20, this.font.lineHeight + 10) + lineH() + 14;
         int contentBottom = this.height - footerReserve;
         int left = 14;
@@ -157,7 +157,7 @@ public final class KryptonStatsScreen extends Screen {
         }
     }
 
-    // ─── Tab builders ───
+    // ??? Tab builders ???
 
     private void buildOverview(int left, int top, int width, int height, int gap, boolean singleColumn) {
         long elapsed = Math.max(1L, snap.elapsedSeconds());
@@ -523,9 +523,9 @@ public final class KryptonStatsScreen extends Screen {
         return nextY;
     }
 
-    // ─── Mods table renderer ───
+    // ??? Mods table renderer ???
 
-    /** Returns [x0, x1, x2, x3, y, h] — three sort-chip ranges and shared y/h. */
+    /** Returns [x0, x1, x2, x3, y, h] ??three sort-chip ranges and shared y/h. */
     private int[] sortChipBounds(int x, int y, int w) {
         int h = Math.max(16, this.font.lineHeight + 6);
         int gap = 6;
@@ -600,7 +600,7 @@ public final class KryptonStatsScreen extends Screen {
 
             // Right-side metric (bytes + percent + packets)
             double frac = e.bytes() / (double) totalBytes;
-            String right = String.format("%s · %.1f%% · %,d",
+            String right = String.format("%s ? %.1f%% ? %,d",
                     NetworkTrafficStats.formatBytes(e.bytes()),
                     frac * 100.0,
                     e.packets());
@@ -699,7 +699,7 @@ public final class KryptonStatsScreen extends Screen {
         return mods;
     }
 
-    // ─── Render ───
+    // ??? Render ???
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
@@ -708,7 +708,7 @@ public final class KryptonStatsScreen extends Screen {
         this.summaryTooltip = null;
 
         var c = UITheme.colors();
-        renderBackground(g, mouseX, mouseY, partialTick);
+        renderBackground(g);
         g.fill(0, 0, this.width, this.height, c.panelBg());
 
         // Header: title + subtitle stacked, aligned to font line height
@@ -747,7 +747,7 @@ public final class KryptonStatsScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // Sort chip click in Mods tab — uses the same geometry as the renderer.
+        // Sort chip click in Mods tab ??uses the same geometry as the renderer.
         if (currentTab == Tab.MODS && !activePanels.isEmpty()) {
             MCPanel panel = activePanels.get(0);
             int cx = panel.getX() + 12;
@@ -767,7 +767,7 @@ public final class KryptonStatsScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         if (currentTab == Tab.MODS
                 && mouseX >= modListInnerX && mouseX <= modListInnerX + modListInnerW
                 && mouseY >= modListInnerY && mouseY <= modListInnerY + modListInnerH) {
@@ -775,10 +775,10 @@ public final class KryptonStatsScreen extends Screen {
             if (modScroll < 0) modScroll = 0;
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        return super.mouseScrolled(mouseX, mouseY, scrollY);
     }
 
-    // ─── Drawing helpers ───
+    // ??? Drawing helpers ???
 
     private void drawChipStrip(GuiGraphics g, int x, int y, int w, long ageMs, double bundleHit) {
         var c = UITheme.colors();
@@ -928,7 +928,7 @@ public final class KryptonStatsScreen extends Screen {
         return y + lineH();
     }
 
-    // ─── Utility ───
+    // ??? Utility ???
 
     /** Approximate panel header height (matches MCPanel TITLE_BAR_HEIGHT + padding). */
     private static int MCPanelHeader() { return 24 + 12; }

@@ -14,13 +14,13 @@ import java.util.concurrent.TimeUnit;
  *
  * <h3>Stages</h3>
  * <ul>
- *   <li><strong>HANDSHAKE</strong> — initial TCP connection, waiting for the
+ *   <li><strong>HANDSHAKE</strong> ??initial TCP connection, waiting for the
  *       handshake packet. Timeout: 5s (configurable). Prevents half-open connections
  *       from occupying resources.</li>
- *   <li><strong>LOGIN</strong> — handshake received, encryption/compression being
+ *   <li><strong>LOGIN</strong> ??handshake received, encryption/compression being
  *       negotiated. Timeout: 10s (configurable). Covers Velocity forwarding, Mojang
  *       session verification, etc.</li>
- *   <li><strong>PLAY</strong> — game session active. Timeout: 30s (configurable).
+ *   <li><strong>PLAY</strong> ??game session active. Timeout: 30s (configurable).
  *       Vanilla already has its own keepalive; this is a safety net for completely
  *       dead connections.</li>
  * </ul>

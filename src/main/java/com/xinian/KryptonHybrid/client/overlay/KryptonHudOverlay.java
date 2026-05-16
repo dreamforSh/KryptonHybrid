@@ -4,11 +4,11 @@ import com.xinian.KryptonHybrid.client.KryptonStatsClientController;
 import com.xinian.KryptonHybrid.client.ui.UITheme;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.LayeredDraw;
 import net.minecraft.network.chat.Component;
+import net.minecraftforge.client.gui.overlay.ForgeGui;
+import net.minecraftforge.client.gui.overlay.IGuiOverlay;
 
 import java.util.List;
 
@@ -18,7 +18,8 @@ import java.util.List;
  * the top traffic-consuming mod. Spacing follows {@code font.lineHeight} so the
  * overlay scales correctly with the in-game GUI scale.
  */
-public final class KryptonHudOverlay implements LayeredDraw.Layer {
+public final class KryptonHudOverlay implements IGuiOverlay {
+    public static final KryptonHudOverlay INSTANCE = new KryptonHudOverlay();
 
     public enum HudAnchor { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
@@ -31,6 +32,8 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
     private static long lastAutoRefreshMs = 0L;
     private static HudAnchor anchor = HudAnchor.TOP_RIGHT;
     private static boolean showTopMod = true;
+
+    private KryptonHudOverlay() {}
 
     private static boolean visible = false;
     public static boolean isVisible() { return visible; }
@@ -53,7 +56,7 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
     public static void toggleShowTopMod() { showTopMod = !showTopMod; }
 
     @Override
-    public void render(GuiGraphics graphics, DeltaTracker deltaTracker) {
+    public void render(ForgeGui gui, GuiGraphics graphics, float partialTick, int screenWidth, int screenHeight) {
         if (!visible) return;
         Minecraft mc = Minecraft.getInstance();
         if (mc.screen != null || mc.player == null) return;
@@ -154,7 +157,7 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
             // Reserve gutter for the right-aligned size and a small spacer.
             int leftMaxW = panelWidth - PADDING * 2 - rw - 6;
             String left = Component.translatable("hud.krypton_hybrid.top_mod",
-                    truncate(mc.font, top.modId(), leftMaxW - mc.font.width("▶ "))).getString();
+                    truncate(mc.font, top.modId(), leftMaxW - mc.font.width("..."))).getString();
             graphics.drawString(mc.font, left, x, y, c.accentLight(), false);
             graphics.drawString(mc.font, right, panelX + panelWidth - PADDING - rw, y, c.textSecondary(), false);
         }
@@ -163,7 +166,7 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
     private static String truncate(net.minecraft.client.gui.Font font, String text, int maxWidth) {
         if (text == null || text.isEmpty()) return "-";
         if (font.width(text) <= maxWidth) return text;
-        String ell = "…";
+        String ell = "...";
         int end = text.length();
         while (end > 1 && font.width(text.substring(0, end) + ell) > maxWidth) end--;
         return text.substring(0, Math.max(1, end)) + ell;
@@ -175,4 +178,3 @@ public final class KryptonHudOverlay implements LayeredDraw.Layer {
         return c.dangerColor();
     }
 }
-

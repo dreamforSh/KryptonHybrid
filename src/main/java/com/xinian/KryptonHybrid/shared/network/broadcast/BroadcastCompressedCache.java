@@ -25,14 +25,14 @@ import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
  * {@link #isCacheable(Packet)}.</p>
  *
  * <h3>Lifecycle</h3>
- * <p>Same as the parent cache — {@link ThreadLocal}, capped at
+ * <p>Same as the parent cache ??{@link ThreadLocal}, capped at
  * {@link #MAX_ENTRIES} per thread, full-clear on overflow.  Smaller cap (64)
  * because compressed chunk packets are large (~8 KB each) and we don't want
  * unbounded heap retention.</p>
  */
 public final class BroadcastCompressedCache {
 
-    /** Cap per-thread entries.  64 × ~8 KB ≈ 0.5 MB worst case. */
+    /** Cap per-thread entries.  64 ? ~8 KB ??0.5 MB worst case. */
     private static final int MAX_ENTRIES = 64;
 
     private static final ThreadLocalIdentityCache<byte[]> CACHE =

@@ -214,7 +214,7 @@ public final class ZstdUtil {
         return null;
     }
 
-    /** Human-readable names for Zstd strategies (indices 0–9). */
+    /** Human-readable names for Zstd strategies (indices 0??). */
     private static final String[] STRATEGY_NAMES = {
             "auto", "fast", "dfast", "greedy", "lazy", "lazy2",
             "btlazy2", "btopt", "btultra", "btultra2"
@@ -227,7 +227,7 @@ public final class ZstdUtil {
      * <h4>Applied parameters</h4>
      * <ul>
      *   <li><strong>Level</strong> ({@link KryptonConfig#zstdLevel}): base compression
-     *       level [1–22].  Must be set <em>before</em> strategy so that strategy can
+     *       level [1??2].  Must be set <em>before</em> strategy so that strategy can
      *       override the level's default match-finding algorithm.</li>
      *   <li><strong>Workers</strong> ({@link KryptonConfig#zstdWorkers}): number of
      *       native threads for parallel compression.  0 = single-threaded (Netty I/O
@@ -245,7 +245,7 @@ public final class ZstdUtil {
      *   <li><strong>Strategy</strong> ({@link KryptonConfig#zstdStrategy}): selects the
      *       match-finding algorithm (fast / dfast / greedy / lazy / lazy2 / btlazy2 /
      *       btopt / btultra / btultra2).  0 = auto (determined by level).</li>
-     *   <li><strong>Checksum</strong>: always disabled — Minecraft's protocol already
+     *   <li><strong>Checksum</strong>: always disabled ??Minecraft's protocol already
      *       frames packets with VarInt length prefixes; an additional checksum would
      *       add 4 bytes per packet for no benefit.</li>
      * </ul>

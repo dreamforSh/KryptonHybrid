@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
  *
  * <p>This accessor targets {@link ServerCommonPacketListenerImpl} directly (where
  * {@code connection} is a <strong>direct</strong> field), so it works reliably even
- * when no Mixin refmap is loaded — Mixin locates the field by its mojmap/Parchment
+ * when no Mixin refmap is loaded ??Mixin locates the field by its mojmap/Parchment
  * name within the declaring class without needing a SRG mapping lookup.</p>
  *
  * <p>Used by {@link ConfigurationFinishPhaseMixin} to obtain the channel for

@@ -1,17 +1,17 @@
 package com.xinian.KryptonHybrid;
 
-import net.neoforged.fml.event.config.ModConfigEvent;
-import net.neoforged.neoforge.common.ModConfigSpec;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
+import net.minecraftforge.common.ForgeConfigSpec;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.ProxyMode;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
- * NeoForge-specific configuration definition for Krypton Hybrid (1.21.1).
+ * Forge-specific configuration definition for Krypton Hybrid (1.20.1).
  *
- * <p>The config file is registered as type {@link net.neoforged.fml.config.ModConfig.Type#COMMON COMMON},
- * which means NeoForge generates it immediately at mod load time under
+ * <p>The config file is registered as type {@link net.minecraftforge.fml.config.ModConfig.Type#COMMON COMMON},
+ * which means Forge generates it immediately at mod load time under
  * {@code config/krypton_hybrid-common.toml} on both clients and dedicated servers.
  * The file is created on the first launch and can be edited while the game is not running.</p>
  *
@@ -20,95 +20,95 @@ import org.apache.commons.lang3.tuple.Pair;
  */
 public final class KryptonForgeConfig {
 
-    /** The built {@link ModConfigSpec}. Pass this to {@code registerConfig()}. */
-    public static final ModConfigSpec SPEC;
+    /** The built {@link ForgeConfigSpec}. Pass this to {@code registerConfig()}. */
+    public static final ForgeConfigSpec SPEC;
 
     /** The singleton config instance. */
     public static final KryptonForgeConfig INSTANCE;
 
     static {
-        Pair<KryptonForgeConfig, ModConfigSpec> pair =
-                new ModConfigSpec.Builder().configure(KryptonForgeConfig::new);
+        Pair<KryptonForgeConfig, ForgeConfigSpec> pair =
+                new ForgeConfigSpec.Builder().configure(KryptonForgeConfig::new);
         INSTANCE = pair.getLeft();
         SPEC     = pair.getRight();
     }
 
-    private final ModConfigSpec.EnumValue<CompressionAlgorithm> algorithm;
-    private final ModConfigSpec.IntValue                        zstdLevel;
-    private final ModConfigSpec.IntValue                        zstdAdaptiveLargeLevel;
-    private final ModConfigSpec.IntValue                        zstdAdaptiveLargeThreshold;
-    private final ModConfigSpec.IntValue                        zstdWorkers;
-    private final ModConfigSpec.IntValue                        zstdOverlapLog;
-    private final ModConfigSpec.IntValue                        zstdJobSize;
-    private final ModConfigSpec.BooleanValue                    zstdEnableLDM;
-    private final ModConfigSpec.IntValue                        zstdLongDistanceWindowLog;
-    private final ModConfigSpec.IntValue                        zstdStrategy;
-    private final ModConfigSpec.BooleanValue                    zstdDictEnabled;
-    private final ModConfigSpec.ConfigValue<String>             zstdDictPath;
-    private final ModConfigSpec.BooleanValue                    zstdDictRequired;
-    private final ModConfigSpec.BooleanValue                    zstdDictTrainingCaptureEnabled;
-    private final ModConfigSpec.ConfigValue<String>             zstdDictTrainingSamplesDir;
-    private final ModConfigSpec.IntValue                        zstdDictTrainingMaxSamples;
-    private final ModConfigSpec.IntValue                        zstdDictTrainingSampleEvery;
-    private final ModConfigSpec.IntValue                        zstdDictTrainingMinBytes;
-    private final ModConfigSpec.IntValue                        zstdDictTrainingMaxBytes;
-    private final ModConfigSpec.BooleanValue                    securityEnabled;
-    private final ModConfigSpec.IntValue                        securityConnectionRatePerSecond;
-    private final ModConfigSpec.IntValue                        securityConnectionBurstLimit;
-    private final ModConfigSpec.IntValue                        securityConnectionQuarantineSeconds;
-    private final ModConfigSpec.IntValue                        securityRapidReconnectWindowMs;
-    private final ModConfigSpec.IntValue                        securityRapidReconnectPenalty;
-    private final ModConfigSpec.IntValue                        securityMaxDecompressedBytes;
-    private final ModConfigSpec.IntValue                        securityMaxCompressionRatio;
-    private final ModConfigSpec.IntValue                        securityMinCompressedBytesForRatioCheck;
-    private final ModConfigSpec.IntValue                        securityHandshakeTimeoutSec;
-    private final ModConfigSpec.IntValue                        securityLoginTimeoutSec;
-    private final ModConfigSpec.IntValue                        securityPlayTimeoutSec;
-    private final ModConfigSpec.IntValue                        securityMaxPacketBytes;
-    private final ModConfigSpec.IntValue                        securityMaxCustomPayloadBytes;
-    private final ModConfigSpec.BooleanValue                    securityReadLimitsEnabled;
-    private final ModConfigSpec.IntValue                        securityMaxStringChars;
-    private final ModConfigSpec.IntValue                        securityMaxCollectionElements;
-    private final ModConfigSpec.IntValue                        securityMaxMapEntries;
-    private final ModConfigSpec.IntValue                        securityMaxCountedElements;
-    private final ModConfigSpec.IntValue                        securityMaxByteArrayBytes;
-    private final ModConfigSpec.BooleanValue                    motdCacheEnabled;
-    private final ModConfigSpec.IntValue                        motdCacheTtlMs;
-    private final ModConfigSpec.BooleanValue                    securityStatusPingGuardEnabled;
-    private final ModConfigSpec.IntValue                        securityStatusPingRatePerSecond;
-    private final ModConfigSpec.IntValue                        securityStatusPingBurstLimit;
-    private final ModConfigSpec.IntValue                        securityStatusPingQuarantineSeconds;
-    private final ModConfigSpec.BooleanValue                    securityStatusPingSilentDrop;
-    private final ModConfigSpec.BooleanValue                    securityLegacyQueryGuardEnabled;
-    private final ModConfigSpec.IntValue                        securityMinProtocolVersion;
-    private final ModConfigSpec.IntValue                        securityMaxProtocolVersion;
-    private final ModConfigSpec.IntValue                        securityMaxHandshakeAddressLength;
-    private final ModConfigSpec.IntValue                        securityAnomalyStrikeThreshold;
-    private final ModConfigSpec.IntValue                        securityWriteWatermarkLow;
-    private final ModConfigSpec.IntValue                        securityWriteWatermarkHigh;
-    private final ModConfigSpec.IntValue                        securityMaxPendingWrites;
-    private final ModConfigSpec.IntValue                        securityMaxUnwritableSeconds;
-    private final ModConfigSpec.BooleanValue                    lightOptEnabled;
-    private final ModConfigSpec.BooleanValue                    chunkOptEnabled;
-    private final ModConfigSpec.BooleanValue                    dccEnabled;
-    private final ModConfigSpec.IntValue                        dccSizeLimit;
-    private final ModConfigSpec.IntValue                        dccDistance;
-    private final ModConfigSpec.IntValue                        dccTimeoutSeconds;
-    private final ModConfigSpec.BooleanValue                    broadcastCacheEnabled;
-    private final ModConfigSpec.BooleanValue                    bundleAlwaysCompress;
-    private final ModConfigSpec.IntValue                        bundleCompressMinBytes;
-    private final ModConfigSpec.BooleanValue                    broadcastCompressedCacheEnabled;
-    private final ModConfigSpec.BooleanValue                    microBatchFlushEnabled;
-    private final ModConfigSpec.IntValue                        microBatchFlushDelayMs;
-    private final ModConfigSpec.BooleanValue                    motionDeltaEnabled;
-    private final ModConfigSpec.IntValue                        motionDeltaThreshold;
-    private final ModConfigSpec.DoubleValue                     teleportDeltaSquared;
-    private final ModConfigSpec.BooleanValue                    packetCoalescingEnabled;
-    private final ModConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
-    private final ModConfigSpec.EnumValue<ProxyMode>            proxyMode;
-    private final ModConfigSpec.ConfigValue<String>             velocityForwardingSecret;
+    private final ForgeConfigSpec.EnumValue<CompressionAlgorithm> algorithm;
+    private final ForgeConfigSpec.IntValue                        zstdLevel;
+    private final ForgeConfigSpec.IntValue                        zstdAdaptiveLargeLevel;
+    private final ForgeConfigSpec.IntValue                        zstdAdaptiveLargeThreshold;
+    private final ForgeConfigSpec.IntValue                        zstdWorkers;
+    private final ForgeConfigSpec.IntValue                        zstdOverlapLog;
+    private final ForgeConfigSpec.IntValue                        zstdJobSize;
+    private final ForgeConfigSpec.BooleanValue                    zstdEnableLDM;
+    private final ForgeConfigSpec.IntValue                        zstdLongDistanceWindowLog;
+    private final ForgeConfigSpec.IntValue                        zstdStrategy;
+    private final ForgeConfigSpec.BooleanValue                    zstdDictEnabled;
+    private final ForgeConfigSpec.ConfigValue<String>             zstdDictPath;
+    private final ForgeConfigSpec.BooleanValue                    zstdDictRequired;
+    private final ForgeConfigSpec.BooleanValue                    zstdDictTrainingCaptureEnabled;
+    private final ForgeConfigSpec.ConfigValue<String>             zstdDictTrainingSamplesDir;
+    private final ForgeConfigSpec.IntValue                        zstdDictTrainingMaxSamples;
+    private final ForgeConfigSpec.IntValue                        zstdDictTrainingSampleEvery;
+    private final ForgeConfigSpec.IntValue                        zstdDictTrainingMinBytes;
+    private final ForgeConfigSpec.IntValue                        zstdDictTrainingMaxBytes;
+    private final ForgeConfigSpec.BooleanValue                    securityEnabled;
+    private final ForgeConfigSpec.IntValue                        securityConnectionRatePerSecond;
+    private final ForgeConfigSpec.IntValue                        securityConnectionBurstLimit;
+    private final ForgeConfigSpec.IntValue                        securityConnectionQuarantineSeconds;
+    private final ForgeConfigSpec.IntValue                        securityRapidReconnectWindowMs;
+    private final ForgeConfigSpec.IntValue                        securityRapidReconnectPenalty;
+    private final ForgeConfigSpec.IntValue                        securityMaxDecompressedBytes;
+    private final ForgeConfigSpec.IntValue                        securityMaxCompressionRatio;
+    private final ForgeConfigSpec.IntValue                        securityMinCompressedBytesForRatioCheck;
+    private final ForgeConfigSpec.IntValue                        securityHandshakeTimeoutSec;
+    private final ForgeConfigSpec.IntValue                        securityLoginTimeoutSec;
+    private final ForgeConfigSpec.IntValue                        securityPlayTimeoutSec;
+    private final ForgeConfigSpec.IntValue                        securityMaxPacketBytes;
+    private final ForgeConfigSpec.IntValue                        securityMaxCustomPayloadBytes;
+    private final ForgeConfigSpec.BooleanValue                    securityReadLimitsEnabled;
+    private final ForgeConfigSpec.IntValue                        securityMaxStringChars;
+    private final ForgeConfigSpec.IntValue                        securityMaxCollectionElements;
+    private final ForgeConfigSpec.IntValue                        securityMaxMapEntries;
+    private final ForgeConfigSpec.IntValue                        securityMaxCountedElements;
+    private final ForgeConfigSpec.IntValue                        securityMaxByteArrayBytes;
+    private final ForgeConfigSpec.BooleanValue                    motdCacheEnabled;
+    private final ForgeConfigSpec.IntValue                        motdCacheTtlMs;
+    private final ForgeConfigSpec.BooleanValue                    securityStatusPingGuardEnabled;
+    private final ForgeConfigSpec.IntValue                        securityStatusPingRatePerSecond;
+    private final ForgeConfigSpec.IntValue                        securityStatusPingBurstLimit;
+    private final ForgeConfigSpec.IntValue                        securityStatusPingQuarantineSeconds;
+    private final ForgeConfigSpec.BooleanValue                    securityStatusPingSilentDrop;
+    private final ForgeConfigSpec.BooleanValue                    securityLegacyQueryGuardEnabled;
+    private final ForgeConfigSpec.IntValue                        securityMinProtocolVersion;
+    private final ForgeConfigSpec.IntValue                        securityMaxProtocolVersion;
+    private final ForgeConfigSpec.IntValue                        securityMaxHandshakeAddressLength;
+    private final ForgeConfigSpec.IntValue                        securityAnomalyStrikeThreshold;
+    private final ForgeConfigSpec.IntValue                        securityWriteWatermarkLow;
+    private final ForgeConfigSpec.IntValue                        securityWriteWatermarkHigh;
+    private final ForgeConfigSpec.IntValue                        securityMaxPendingWrites;
+    private final ForgeConfigSpec.IntValue                        securityMaxUnwritableSeconds;
+    private final ForgeConfigSpec.BooleanValue                    lightOptEnabled;
+    private final ForgeConfigSpec.BooleanValue                    chunkOptEnabled;
+    private final ForgeConfigSpec.BooleanValue                    dccEnabled;
+    private final ForgeConfigSpec.IntValue                        dccSizeLimit;
+    private final ForgeConfigSpec.IntValue                        dccDistance;
+    private final ForgeConfigSpec.IntValue                        dccTimeoutSeconds;
+    private final ForgeConfigSpec.BooleanValue                    broadcastCacheEnabled;
+    private final ForgeConfigSpec.BooleanValue                    bundleAlwaysCompress;
+    private final ForgeConfigSpec.IntValue                        bundleCompressMinBytes;
+    private final ForgeConfigSpec.BooleanValue                    broadcastCompressedCacheEnabled;
+    private final ForgeConfigSpec.BooleanValue                    microBatchFlushEnabled;
+    private final ForgeConfigSpec.IntValue                        microBatchFlushDelayMs;
+    private final ForgeConfigSpec.BooleanValue                    motionDeltaEnabled;
+    private final ForgeConfigSpec.IntValue                        motionDeltaThreshold;
+    private final ForgeConfigSpec.DoubleValue                     teleportDeltaSquared;
+    private final ForgeConfigSpec.BooleanValue                    packetCoalescingEnabled;
+    private final ForgeConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
+    private final ForgeConfigSpec.EnumValue<ProxyMode>            proxyMode;
+    private final ForgeConfigSpec.ConfigValue<String>             velocityForwardingSecret;
 
-    private KryptonForgeConfig(ModConfigSpec.Builder builder) {
+    private KryptonForgeConfig(ForgeConfigSpec.Builder builder) {
         builder.comment(
                 "Krypton Hybrid - Packet Compression",
                 "Select the compression algorithm used for all player connections.",
@@ -175,7 +175,7 @@ public final class KryptonForgeConfig {
                         "thread pool.  Useful when compressing large payloads (chunk data,",
                         "recipe sync) on multi-core CPUs.",
                         "",
-                        "Total native threads = workers × active connections, so keep this",
+                        "Total native threads = workers ? active connections, so keep this",
                         "low on high-player-count servers.",
                         "Range: 0 \u2013 128  |  Default: 0 (single-threaded)"
                 )
@@ -317,7 +317,7 @@ public final class KryptonForgeConfig {
         builder.comment(
                 "Krypton Hybrid - Network Security / Independent Packet Control",
                 "Protects the inbound network path without touching Velocity Native fast paths.",
-                "All checks run in the Minecraft / NeoForge layer and are designed to fail fast",
+                "All checks run in the Minecraft / Forge layer and are designed to fail fast",
                 "before expensive decode, decompression, NBT, or gameplay processing begins."
         ).push("security");
 

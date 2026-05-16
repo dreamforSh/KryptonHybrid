@@ -58,7 +58,7 @@ public final class BlockEntityDeltaCache {
     /** Maximum cached block entity positions per player. */
     private static final int MAX_ENTRIES = 512;
 
-    /** Packed BlockPos → last-sent CompoundTag (deep copy). */
+    /** Packed BlockPos ??last-sent CompoundTag (deep copy). */
     private final Long2ObjectLinkedOpenHashMap<CompoundTag> cache =
             new Long2ObjectLinkedOpenHashMap<>();
 
@@ -76,14 +76,14 @@ public final class BlockEntityDeltaCache {
         CompoundTag lastSent = cache.get(packedPos);
 
         if (lastSent == null) {
-            // First send — cache and return full tag
+            // First send ??cache and return full tag
             putCache(packedPos, newTag.copy());
             return newTag;
         }
 
         // Quick equality check
         if (lastSent.equals(newTag)) {
-            return null; // unchanged — skip sending
+            return null; // unchanged ??skip sending
         }
 
         // Compute delta

@@ -21,7 +21,7 @@ public final class AutoFlushUtil {
     public static void setAutoFlush(ServerPlayer player, boolean val) {
         // Only apply to vanilla ServerPlayer instances, not subclasses (e.g. fake players)
         if (player.getClass() == ServerPlayer.class) {
-            Connection connection = player.connection.getConnection();
+            Connection connection = player.connection.connection;
             ((ConfigurableAutoFlush) connection).setShouldAutoFlush(val);
         }
     }
@@ -40,4 +40,3 @@ public final class AutoFlushUtil {
 
     private AutoFlushUtil() {}
 }
-

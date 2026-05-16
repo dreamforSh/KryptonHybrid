@@ -1,22 +1,16 @@
 package com.xinian.KryptonHybrid.shared.network.payload;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
-import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
+import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Server → client snapshot of {@link NetworkTrafficStats} used to drive the
- * {@code KryptonStatsScreen} GUI on the client.
- *
- * <p>Sent in response to {@code /krypton stats gui} so the player can see
- * real-time bandwidth, compression and bundle metrics in a graphical view.</p>
+ * Server-to-client snapshot of {@link NetworkTrafficStats} used by the stats GUI.
  */
 public record StatsSnapshotPayload(
         long elapsedSeconds,
@@ -59,151 +53,138 @@ public record StatsSnapshotPayload(
         long secWritesDropped,
         long secWatermarkBreaches,
         List<ModEntry> topMods
-) implements CustomPacketPayload {
-
-    /** Maximum number of per-mod entries shipped to the client. */
+) {
     public static final int MAX_TOP_MODS = 64;
+    public static final ResourceLocation ID = new ResourceLocation("krypton_hybrid", "stats_snapshot");
 
-    /** Per-mod traffic record (used for the GUI "Mods" tab). */
     public record ModEntry(String modId, long packets, long bytes) {}
 
-    public static final Type<StatsSnapshotPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath("krypton_hybrid", "stats_snapshot"));
-
-    public static final StreamCodec<FriendlyByteBuf, StatsSnapshotPayload> STREAM_CODEC =
-            StreamCodec.of(
-                    (buf, p) -> {
-                        buf.writeVarLong(p.elapsedSeconds);
-                        buf.writeVarLong(p.packetsSent);
-                        buf.writeVarLong(p.packetsReceived);
-                        buf.writeVarLong(p.bytesSentOriginal);
-                        buf.writeVarLong(p.bytesSentWire);
-                        buf.writeVarLong(p.bytesReceived);
-                        buf.writeVarLong(p.savedBytes);
-                        buf.writeDouble(p.compressionRatio);
-                        buf.writeDouble(p.savingPercent);
-                        buf.writeVarLong(p.bundlesEmitted);
-                        buf.writeVarLong(p.bundlePacketsTotal);
-                        buf.writeVarLong(p.bundleBatchesObserved);
-                        buf.writeVarLong(p.coalesceDroppedPackets);
-                        buf.writeVarInt(p.trackedTypeCount);
-                        buf.writeVarInt(p.trackedModCount);
-                        buf.writeVarLong(p.totalTrackedTypePackets);
-                        buf.writeVarLong(p.totalTrackedTypeBytes);
-                        buf.writeVarLong(p.totalTrackedModPackets);
-                        buf.writeVarLong(p.totalTrackedModBytes);
-                        buf.writeDouble(p.trackedCoveragePercent);
-                        buf.writeUtf(p.hottestPacketType, 256);
-                        buf.writeVarLong(p.hottestPacketTypePackets);
-                        buf.writeVarLong(p.hottestPacketTypeBytes);
-                        buf.writeUtf(p.hottestModId, 128);
-                        buf.writeVarLong(p.hottestModPackets);
-                        buf.writeVarLong(p.hottestModBytes);
-                        buf.writeUtf(p.compressionAlgorithm, 32);
-                        buf.writeBoolean(p.securityEnabled);
-                        buf.writeVarLong(p.secConnectionsRateLimited);
-                        buf.writeVarLong(p.secPacketsSizeRejected);
-                        buf.writeVarLong(p.secReadLimitRejected);
-                        buf.writeVarLong(p.secNullFramesDropped);
-                        buf.writeVarLong(p.secDecompressionBombs);
-                        buf.writeVarLong(p.secHandshakesRejected);
-                        buf.writeVarLong(p.secTimeouts);
-                        buf.writeVarLong(p.secAnomalyEvents);
-                        buf.writeVarLong(p.secAnomalyDisconnects);
-                        buf.writeVarLong(p.secWritesDropped);
-                        buf.writeVarLong(p.secWatermarkBreaches);
-                        int n = Math.min(p.topMods.size(), MAX_TOP_MODS);
-                        buf.writeVarInt(n);
-                        for (int i = 0; i < n; i++) {
-                            ModEntry e = p.topMods.get(i);
-                            buf.writeUtf(e.modId, 128);
-                            buf.writeVarLong(e.packets);
-                            buf.writeVarLong(e.bytes);
-                        }
-                    },
-                    buf -> {
-                        long elapsedSeconds = buf.readVarLong();
-                        long packetsSent = buf.readVarLong();
-                        long packetsReceived = buf.readVarLong();
-                        long bytesSentOriginal = buf.readVarLong();
-                        long bytesSentWire = buf.readVarLong();
-                        long bytesReceived = buf.readVarLong();
-                        long savedBytes = buf.readVarLong();
-                        double compressionRatio = buf.readDouble();
-                        double savingPercent = buf.readDouble();
-                        long bundlesEmitted = buf.readVarLong();
-                        long bundlePacketsTotal = buf.readVarLong();
-                        long bundleBatchesObserved = buf.readVarLong();
-                        long coalesceDroppedPackets = buf.readVarLong();
-                        int trackedTypeCount = buf.readVarInt();
-                        int trackedModCount = buf.readVarInt();
-                        long totalTrackedTypePackets = buf.readVarLong();
-                        long totalTrackedTypeBytes = buf.readVarLong();
-                        long totalTrackedModPackets = buf.readVarLong();
-                        long totalTrackedModBytes = buf.readVarLong();
-                        double trackedCoveragePercent = buf.readDouble();
-                        String hottestPacketType = buf.readUtf(256);
-                        long hottestPacketTypePackets = buf.readVarLong();
-                        long hottestPacketTypeBytes = buf.readVarLong();
-                        String hottestModId = buf.readUtf(128);
-                        long hottestModPackets = buf.readVarLong();
-                        long hottestModBytes = buf.readVarLong();
-                        String compressionAlgorithm = buf.readUtf(32);
-                        boolean securityEnabled = buf.readBoolean();
-                        long secConnectionsRateLimited = buf.readVarLong();
-                        long secPacketsSizeRejected = buf.readVarLong();
-                        long secReadLimitRejected = buf.readVarLong();
-                        long secNullFramesDropped = buf.readVarLong();
-                        long secDecompressionBombs = buf.readVarLong();
-                        long secHandshakesRejected = buf.readVarLong();
-                        long secTimeouts = buf.readVarLong();
-                        long secAnomalyEvents = buf.readVarLong();
-                        long secAnomalyDisconnects = buf.readVarLong();
-                        long secWritesDropped = buf.readVarLong();
-                        long secWatermarkBreaches = buf.readVarLong();
-                        int n = Math.min(buf.readVarInt(), MAX_TOP_MODS);
-                        List<ModEntry> mods = new ArrayList<>(n);
-                        for (int i = 0; i < n; i++) {
-                            String id = buf.readUtf(128);
-                            long pk = buf.readVarLong();
-                            long by = buf.readVarLong();
-                            mods.add(new ModEntry(id, pk, by));
-                        }
-                        return new StatsSnapshotPayload(
-                                elapsedSeconds, packetsSent, packetsReceived,
-                                bytesSentOriginal, bytesSentWire, bytesReceived,
-                                savedBytes, compressionRatio, savingPercent,
-                                bundlesEmitted, bundlePacketsTotal, bundleBatchesObserved,
-                                coalesceDroppedPackets,
-                                trackedTypeCount, trackedModCount,
-                                totalTrackedTypePackets, totalTrackedTypeBytes,
-                                totalTrackedModPackets, totalTrackedModBytes,
-                                trackedCoveragePercent,
-                                hottestPacketType, hottestPacketTypePackets, hottestPacketTypeBytes,
-                                hottestModId, hottestModPackets, hottestModBytes,
-                                compressionAlgorithm,
-                                securityEnabled,
-                                secConnectionsRateLimited,
-                                secPacketsSizeRejected,
-                                secReadLimitRejected,
-                                secNullFramesDropped,
-                                secDecompressionBombs,
-                                secHandshakesRejected,
-                                secTimeouts,
-                                secAnomalyEvents,
-                                secAnomalyDisconnects,
-                                secWritesDropped,
-                                secWatermarkBreaches,
-                                mods);
-                    }
-            );
-
-    @Override
-    public Type<StatsSnapshotPayload> type() {
-        return TYPE;
+    public static void encode(StatsSnapshotPayload p, FriendlyByteBuf buf) {
+        buf.writeVarLong(p.elapsedSeconds);
+        buf.writeVarLong(p.packetsSent);
+        buf.writeVarLong(p.packetsReceived);
+        buf.writeVarLong(p.bytesSentOriginal);
+        buf.writeVarLong(p.bytesSentWire);
+        buf.writeVarLong(p.bytesReceived);
+        buf.writeVarLong(p.savedBytes);
+        buf.writeDouble(p.compressionRatio);
+        buf.writeDouble(p.savingPercent);
+        buf.writeVarLong(p.bundlesEmitted);
+        buf.writeVarLong(p.bundlePacketsTotal);
+        buf.writeVarLong(p.bundleBatchesObserved);
+        buf.writeVarLong(p.coalesceDroppedPackets);
+        buf.writeVarInt(p.trackedTypeCount);
+        buf.writeVarInt(p.trackedModCount);
+        buf.writeVarLong(p.totalTrackedTypePackets);
+        buf.writeVarLong(p.totalTrackedTypeBytes);
+        buf.writeVarLong(p.totalTrackedModPackets);
+        buf.writeVarLong(p.totalTrackedModBytes);
+        buf.writeDouble(p.trackedCoveragePercent);
+        buf.writeUtf(p.hottestPacketType, 256);
+        buf.writeVarLong(p.hottestPacketTypePackets);
+        buf.writeVarLong(p.hottestPacketTypeBytes);
+        buf.writeUtf(p.hottestModId, 128);
+        buf.writeVarLong(p.hottestModPackets);
+        buf.writeVarLong(p.hottestModBytes);
+        buf.writeUtf(p.compressionAlgorithm, 32);
+        buf.writeBoolean(p.securityEnabled);
+        buf.writeVarLong(p.secConnectionsRateLimited);
+        buf.writeVarLong(p.secPacketsSizeRejected);
+        buf.writeVarLong(p.secReadLimitRejected);
+        buf.writeVarLong(p.secNullFramesDropped);
+        buf.writeVarLong(p.secDecompressionBombs);
+        buf.writeVarLong(p.secHandshakesRejected);
+        buf.writeVarLong(p.secTimeouts);
+        buf.writeVarLong(p.secAnomalyEvents);
+        buf.writeVarLong(p.secAnomalyDisconnects);
+        buf.writeVarLong(p.secWritesDropped);
+        buf.writeVarLong(p.secWatermarkBreaches);
+        int n = Math.min(p.topMods.size(), MAX_TOP_MODS);
+        buf.writeVarInt(n);
+        for (int i = 0; i < n; i++) {
+            ModEntry e = p.topMods.get(i);
+            buf.writeUtf(e.modId, 128);
+            buf.writeVarLong(e.packets);
+            buf.writeVarLong(e.bytes);
+        }
     }
 
-    /** Builds a snapshot from current server-side counters. */
+    public static StatsSnapshotPayload decode(FriendlyByteBuf buf) {
+        long elapsedSeconds = buf.readVarLong();
+        long packetsSent = buf.readVarLong();
+        long packetsReceived = buf.readVarLong();
+        long bytesSentOriginal = buf.readVarLong();
+        long bytesSentWire = buf.readVarLong();
+        long bytesReceived = buf.readVarLong();
+        long savedBytes = buf.readVarLong();
+        double compressionRatio = buf.readDouble();
+        double savingPercent = buf.readDouble();
+        long bundlesEmitted = buf.readVarLong();
+        long bundlePacketsTotal = buf.readVarLong();
+        long bundleBatchesObserved = buf.readVarLong();
+        long coalesceDroppedPackets = buf.readVarLong();
+        int trackedTypeCount = buf.readVarInt();
+        int trackedModCount = buf.readVarInt();
+        long totalTrackedTypePackets = buf.readVarLong();
+        long totalTrackedTypeBytes = buf.readVarLong();
+        long totalTrackedModPackets = buf.readVarLong();
+        long totalTrackedModBytes = buf.readVarLong();
+        double trackedCoveragePercent = buf.readDouble();
+        String hottestPacketType = buf.readUtf(256);
+        long hottestPacketTypePackets = buf.readVarLong();
+        long hottestPacketTypeBytes = buf.readVarLong();
+        String hottestModId = buf.readUtf(128);
+        long hottestModPackets = buf.readVarLong();
+        long hottestModBytes = buf.readVarLong();
+        String compressionAlgorithm = buf.readUtf(32);
+        boolean securityEnabled = buf.readBoolean();
+        long secConnectionsRateLimited = buf.readVarLong();
+        long secPacketsSizeRejected = buf.readVarLong();
+        long secReadLimitRejected = buf.readVarLong();
+        long secNullFramesDropped = buf.readVarLong();
+        long secDecompressionBombs = buf.readVarLong();
+        long secHandshakesRejected = buf.readVarLong();
+        long secTimeouts = buf.readVarLong();
+        long secAnomalyEvents = buf.readVarLong();
+        long secAnomalyDisconnects = buf.readVarLong();
+        long secWritesDropped = buf.readVarLong();
+        long secWatermarkBreaches = buf.readVarLong();
+        int n = Math.min(buf.readVarInt(), MAX_TOP_MODS);
+        List<ModEntry> mods = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            String id = buf.readUtf(128);
+            long packets = buf.readVarLong();
+            long bytes = buf.readVarLong();
+            mods.add(new ModEntry(id, packets, bytes));
+        }
+        return new StatsSnapshotPayload(
+                elapsedSeconds, packetsSent, packetsReceived,
+                bytesSentOriginal, bytesSentWire, bytesReceived,
+                savedBytes, compressionRatio, savingPercent,
+                bundlesEmitted, bundlePacketsTotal, bundleBatchesObserved,
+                coalesceDroppedPackets,
+                trackedTypeCount, trackedModCount,
+                totalTrackedTypePackets, totalTrackedTypeBytes,
+                totalTrackedModPackets, totalTrackedModBytes,
+                trackedCoveragePercent,
+                hottestPacketType, hottestPacketTypePackets, hottestPacketTypeBytes,
+                hottestModId, hottestModPackets, hottestModBytes,
+                compressionAlgorithm,
+                securityEnabled,
+                secConnectionsRateLimited,
+                secPacketsSizeRejected,
+                secReadLimitRejected,
+                secNullFramesDropped,
+                secDecompressionBombs,
+                secHandshakesRejected,
+                secTimeouts,
+                secAnomalyEvents,
+                secAnomalyDisconnects,
+                secWritesDropped,
+                secWatermarkBreaches,
+                mods);
+    }
+
     public static StatsSnapshotPayload current() {
         NetworkTrafficStats s = NetworkTrafficStats.INSTANCE;
         NetworkTrafficStats.TrafficEntry hottestPacket = s.getTopTypeByBytes();
@@ -324,4 +305,3 @@ public record StatsSnapshotPayload(
         return base == 0 ? 0.0 : 100.0 * coalesceDroppedPackets / (double) base;
     }
 }
-
