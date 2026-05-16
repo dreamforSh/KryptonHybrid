@@ -38,7 +38,7 @@ public final class UITheme {
     public static void toggleMode() { currentMode = currentMode == Mode.DARK ? Mode.LIGHT : Mode.DARK; }
     public static ColorPalette colors() { return currentMode == Mode.DARK ? DARK : LIGHT; }
 
-    // ─── Rounded rect ───
+    // ??? Rounded rect ???
     public static void fillRoundedRect(GuiGraphics g, int x, int y, int w, int h, int radius, int color) {
         if (radius <= 0 || w < radius * 2 || h < radius * 2) {
             g.fill(x, y, x + w, y + h, color);
@@ -102,7 +102,7 @@ public final class UITheme {
         g.fill(x, y, x + width, y + 1, color);
     }
 
-    // ─── Animation easing ───
+    // ??? Animation easing ???
     public static float easeOutCubic(float t) { t = clamp01(t); float f = 1 - t; return 1 - f * f * f; }
     public static float easeInOutQuad(float t) { t = clamp01(t); return t < 0.5f ? 2 * t * t : 1 - (-2 * t + 2) * (-2 * t + 2) / 2; }
     public static float smoothDamp(float current, float target, float speed) { return current + (target - current) * Math.min(1.0f, speed); }

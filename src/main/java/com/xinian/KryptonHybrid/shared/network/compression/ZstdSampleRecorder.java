@@ -4,8 +4,8 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 
 import java.io.IOException;
@@ -156,10 +156,10 @@ public final class ZstdSampleRecorder {
 
     private static String packetName(Packet<?> packet) {
         if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            return sanitizePayloadId(cp.payload().type().id());
+            return sanitizePayloadId(cp.getIdentifier());
         }
         if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            return sanitizePayloadId(sp.payload().type().id());
+            return sanitizePayloadId(sp.getIdentifier());
         }
         if (packet == null) {
             return "unknown";

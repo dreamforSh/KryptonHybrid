@@ -95,7 +95,7 @@ public final class KryptonStatsSettingsScreen extends Screen {
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         var c = UITheme.colors();
-        renderBackground(g, mouseX, mouseY, partialTick);
+        renderBackground(g);
         g.fill(0, 0, this.width, this.height, c.panelBg());
 
         int panelW = Math.min(420, this.width - 24);

@@ -7,8 +7,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.ResourceLocation;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
@@ -82,11 +82,11 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
   private static String kryptonResolveKey(Packet<?> packet) {
     if (packet instanceof ClientboundCustomPayloadPacket cp) {
-      ResourceLocation id = cp.payload().type().id();
+      ResourceLocation id = cp.getIdentifier();
       return "custom:" + id.getNamespace() + "/" + id.getPath();
     }
     if (packet instanceof ServerboundCustomPayloadPacket sp) {
-      ResourceLocation id = sp.payload().type().id();
+      ResourceLocation id = sp.getIdentifier();
       return "custom:" + id.getNamespace() + "/" + id.getPath();
     }
     return packet.getClass().getSimpleName();
@@ -94,10 +94,10 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
   private static String kryptonResolveModId(Packet<?> packet) {
     if (packet instanceof ClientboundCustomPayloadPacket cp) {
-      return cp.payload().type().id().getNamespace();
+      return cp.getIdentifier().getNamespace();
     }
     if (packet instanceof ServerboundCustomPayloadPacket sp) {
-      return sp.payload().type().id().getNamespace();
+      return sp.getIdentifier().getNamespace();
     }
     String pkg = packet.getClass().getPackageName();
     if (pkg.startsWith("net.minecraft.")) return "minecraft";

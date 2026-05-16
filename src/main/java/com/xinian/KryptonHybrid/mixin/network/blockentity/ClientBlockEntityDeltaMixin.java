@@ -5,7 +5,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -24,11 +23,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * {@code __krypton_delta = true} boolean key.  When detected:</p>
  * <ol>
  *   <li>The existing block entity's current data is retrieved via
- *       {@link BlockEntity#saveWithoutMetadata(HolderLookup.Provider)}.</li>
+ *       {@link BlockEntity#saveWithoutMetadata()}.</li>
  *   <li>Removed keys (listed in {@code __krypton_removed}) are deleted.</li>
  *   <li>Changed/added keys from the delta tag are merged.</li>
  *   <li>The merged tag is applied via
- *       {@link BlockEntity#loadWithComponents(CompoundTag, HolderLookup.Provider)}.</li>
+ *       {@link BlockEntity#load(CompoundTag)}.</li>
  * </ol>
  *
  * <h3>Fallback</h3>
@@ -70,10 +69,7 @@ public class ClientBlockEntityDeltaMixin {
         }
 
         BlockEntity be = optionalBe.get();
-        HolderLookup.Provider registries = level.registryAccess();
-
-
-        CompoundTag currentData = be.saveWithoutMetadata(registries);
+        CompoundTag currentData = be.saveWithoutMetadata();
 
 
         if (tag.contains(BlockEntityDeltaCache.REMOVED_KEYS_KEY)) {
@@ -98,6 +94,6 @@ public class ClientBlockEntityDeltaMixin {
         }
 
 
-        be.loadWithComponents(currentData, registries);
+        be.load(currentData);
     }
 }

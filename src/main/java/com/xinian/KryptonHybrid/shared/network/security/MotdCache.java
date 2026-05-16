@@ -7,7 +7,6 @@ import com.mojang.serialization.JsonOps;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import io.netty.handler.codec.EncoderException;
 import net.minecraft.network.protocol.status.ServerStatus;
-import net.minecraft.server.ServerInfo;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -61,68 +60,12 @@ public final class MotdCache {
         }
     }
 
-    public static String cachedLegacyVersion0(ServerInfo server) {
-        if (!isEnabled()) {
-            return null;
-        }
-
-        long now = System.currentTimeMillis();
-        LegacyEntry entry = legacyV0;
-        if (entry != null && entry.expiresAtMs() > now) {
-            legacyHits.incrementAndGet();
-            return entry.response();
-        }
-
-        synchronized (MotdCache.class) {
-            now = System.currentTimeMillis();
-            entry = legacyV0;
-            if (entry != null && entry.expiresAtMs() > now) {
-                legacyHits.incrementAndGet();
-                return entry.response();
-            }
-
-            String response = String.format(Locale.ROOT, "%s\u00a7%d\u00a7%d",
-                    server.getMotd(),
-                    server.getPlayerCount(),
-                    server.getMaxPlayers());
-            legacyV0 = new LegacyEntry(response, now + ttlMs());
-            legacyMisses.incrementAndGet();
-            return response;
-        }
+    public static String cachedLegacyVersion0(Object server) {
+        return null;
     }
 
-    public static String cachedLegacyVersion1(ServerInfo server) {
-        if (!isEnabled()) {
-            return null;
-        }
-
-        long now = System.currentTimeMillis();
-        LegacyEntry entry = legacyV1;
-        if (entry != null && entry.expiresAtMs() > now) {
-            legacyHits.incrementAndGet();
-            return entry.response();
-        }
-
-        synchronized (MotdCache.class) {
-            now = System.currentTimeMillis();
-            entry = legacyV1;
-            if (entry != null && entry.expiresAtMs() > now) {
-                legacyHits.incrementAndGet();
-                return entry.response();
-            }
-
-            String response = String.format(
-                    Locale.ROOT,
-                    "\u00a71\u0000%d\u0000%s\u0000%s\u0000%d\u0000%d",
-                    127,
-                    server.getServerVersion(),
-                    server.getMotd(),
-                    server.getPlayerCount(),
-                    server.getMaxPlayers());
-            legacyV1 = new LegacyEntry(response, now + ttlMs());
-            legacyMisses.incrementAndGet();
-            return response;
-        }
+    public static String cachedLegacyVersion1(Object server) {
+        return null;
     }
 
     public static void invalidate() {
@@ -156,7 +99,9 @@ public final class MotdCache {
 
     private static String encodeStatusJson(ServerStatus status) {
         DataResult<JsonElement> result = ServerStatus.CODEC.encodeStart(JsonOps.INSTANCE, status);
-        return GSON.toJson(result.getOrThrow(error -> new EncoderException("Failed to encode server status: " + error)));
+        return GSON.toJson(result.getOrThrow(false, error -> {
+            throw new EncoderException("Failed to encode server status: " + error);
+        }));
     }
 
     private record JsonEntry(String json, long expiresAtMs) {}

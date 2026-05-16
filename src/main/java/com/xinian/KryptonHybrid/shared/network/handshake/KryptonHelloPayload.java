@@ -1,33 +1,12 @@
 package com.xinian.KryptonHybrid.shared.network.handshake;
 
-import io.netty.buffer.ByteBuf;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
 
-/**
- * Lightweight capability-negotiation marker payload used during configuration.
- */
-public record KryptonHelloPayload(int featureFlags) implements CustomPacketPayload {
-    public static final Type<KryptonHelloPayload> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("krypton_hybrid", "hello"));
-
+/** Lightweight feature flag container used by Forge 1.20.1 wire-format gates. */
+public record KryptonHelloPayload(int featureFlags) {
     public static final int FEATURE_CHUNK_DATA = 1;
     public static final int FEATURE_LIGHT_DATA = 1 << 1;
     public static final int FEATURE_BLOCK_ENTITY_DELTA = 1 << 2;
-
-    public static final StreamCodec<ByteBuf, KryptonHelloPayload> STREAM_CODEC = new StreamCodec<>() {
-        @Override
-        public KryptonHelloPayload decode(ByteBuf buf) {
-            return new KryptonHelloPayload(buf.readUnsignedByte());
-        }
-
-        @Override
-        public void encode(ByteBuf buf, KryptonHelloPayload payload) {
-            buf.writeByte(payload.featureFlags() & 0xFF);
-        }
-    };
 
     public static KryptonHelloPayload current() {
         int flags = 0;
@@ -43,11 +22,6 @@ public record KryptonHelloPayload(int featureFlags) implements CustomPacketPaylo
         return new KryptonHelloPayload(flags);
     }
 
-    @Override
-    public Type<KryptonHelloPayload> type() {
-        return TYPE;
-    }
-
     public boolean supportsChunkData() {
         return (this.featureFlags & FEATURE_CHUNK_DATA) != 0;
     }
@@ -60,4 +34,3 @@ public record KryptonHelloPayload(int featureFlags) implements CustomPacketPaylo
         return (this.featureFlags & FEATURE_BLOCK_ENTITY_DELTA) != 0;
     }
 }
-
