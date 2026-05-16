@@ -9,9 +9,9 @@ import io.netty.handler.codec.EncoderException;
 import com.xinian.KryptonHybrid.shared.network.util.VarIntUtil;
 import com.xinian.KryptonHybrid.shared.network.util.VarLongUtil;
 import net.minecraft.network.FriendlyByteBuf;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -44,9 +44,8 @@ import java.util.function.IntFunction;
 @Mixin(value = FriendlyByteBuf.class, priority = 900)
 public abstract class FriendlyByteBufMixin extends ByteBuf {
 
-    @Shadow
-    @Final
-    private ByteBuf source;
+    @Accessor("source")
+    abstract ByteBuf krypton$source();
 
     @Shadow
     public abstract FriendlyByteBuf writeVarInt(int value);
@@ -79,7 +78,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
      * technique from the Varint21FrameDecoder (netty#14050).
      *
      * <p>Reads the underlying {@code source} buffer directly, bypassing the vanilla
-     * {@code VarInt.read(this.source)} delegate call.  For 1?? byte VarInts (which
+     * {@code VarInt.read(this.krypton$source())} delegate call.  For 1?? byte VarInts (which
      * cover values 0??68,435,455 ??virtually all Minecraft VarInts), the decode is
      * performed with a single {@code getIntLE}, two bitwise merges, and zero conditional
      * branches.</p>
@@ -90,7 +89,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
      */
     @Inject(method = "readVarInt", at = @At("HEAD"), cancellable = true)
     private void readVarInt$kryptonfnp(CallbackInfoReturnable<Integer> cir) {
-        cir.setReturnValue(VarIntUtil.readVarInt(this.source));
+        cir.setReturnValue(VarIntUtil.readVarInt(this.krypton$source()));
     }
 
     @Inject(method = "readUtf(I)Ljava/lang/String;", at = @At("HEAD"))
@@ -112,14 +111,14 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
         }
 
         int effectiveMax = Math.min(maxLength, KryptonConfig.securityMaxByteArrayBytes);
-        int size = VarIntUtil.readVarInt(this.source);
+        int size = VarIntUtil.readVarInt(this.krypton$source());
         if (size > effectiveMax) {
             SecurityMetrics.INSTANCE.recordReadLimitRejected();
             throw new DecoderException("ByteArray with size " + size + " exceeds security max " + effectiveMax);
         }
 
         byte[] out = new byte[size];
-        this.source.readBytes(out);
+        this.krypton$source().readBytes(out);
         cir.setReturnValue(out);
     }
 
@@ -224,24 +223,24 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
     @Inject(method = "writeVarInt", at = @At("HEAD"), cancellable = true)
     private void writeVarInt$kryptonfnp(int value, CallbackInfoReturnable<FriendlyByteBuf> cir) {
         if ((value & VarIntUtil.MASK_7_BITS) == 0) {
-            this.source.writeByte(value);
+            this.krypton$source().writeByte(value);
         } else if ((value & VarIntUtil.MASK_14_BITS) == 0) {
-            this.source.writeShort((value & 0x7F | 0x80) << 8 | (value >>> 7));
+            this.krypton$source().writeShort((value & 0x7F | 0x80) << 8 | (value >>> 7));
         } else if ((value & VarIntUtil.MASK_21_BITS) == 0) {
-            this.source.writeMedium((value & 0x7F | 0x80) << 16
+            this.krypton$source().writeMedium((value & 0x7F | 0x80) << 16
                     | ((value >>> 7) & 0x7F | 0x80) << 8
                     | (value >>> 14));
         } else if ((value & VarIntUtil.MASK_28_BITS) == 0) {
-            this.source.writeInt((value & 0x7F | 0x80) << 24
+            this.krypton$source().writeInt((value & 0x7F | 0x80) << 24
                     | ((value >>> 7) & 0x7F | 0x80) << 16
                     | ((value >>> 14) & 0x7F | 0x80) << 8
                     | (value >>> 21));
         } else {
-            this.source.writeInt((value & 0x7F | 0x80) << 24
+            this.krypton$source().writeInt((value & 0x7F | 0x80) << 24
                     | ((value >>> 7) & 0x7F | 0x80) << 16
                     | ((value >>> 14) & 0x7F | 0x80) << 8
                     | ((value >>> 21) & 0x7F | 0x80));
-            this.source.writeByte(value >>> 28);
+            this.krypton$source().writeByte(value >>> 28);
         }
         cir.setReturnValue((FriendlyByteBuf) (Object) this);
     }
@@ -252,11 +251,11 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
     @Inject(method = "writeVarLong", at = @At("HEAD"), cancellable = true)
     private void writeVarLong$kryptonfnp(long value, CallbackInfoReturnable<FriendlyByteBuf> cir) {
         if ((value & VarLongUtil.MASK_7_BITS) == 0L) {
-            this.source.writeByte((int) value);
+            this.krypton$source().writeByte((int) value);
         } else if ((value & VarLongUtil.MASK_14_BITS) == 0L) {
-            this.source.writeShort((int) ((value & 0x7FL) | 0x80L) << 8 | (int) (value >>> 7));
+            this.krypton$source().writeShort((int) ((value & 0x7FL) | 0x80L) << 8 | (int) (value >>> 7));
         } else {
-            VarLongUtil.writeVarLongFull(this.source, value);
+            VarLongUtil.writeVarLongFull(this.krypton$source(), value);
         }
         cir.setReturnValue((FriendlyByteBuf) (Object) this);
     }

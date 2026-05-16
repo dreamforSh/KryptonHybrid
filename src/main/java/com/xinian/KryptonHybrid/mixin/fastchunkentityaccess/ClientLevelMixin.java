@@ -7,11 +7,10 @@ import net.minecraft.world.level.entity.EntitySectionStorage;
 import net.minecraft.world.level.entity.TransientEntitySectionManager;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Implements;
 import org.spongepowered.asm.mixin.Interface;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.Collection;
 
@@ -25,11 +24,11 @@ import java.util.Collection;
 @OnlyIn(Dist.CLIENT)
 public abstract class ClientLevelMixin {
 
-    @Shadow @Final private TransientEntitySectionManager<Entity> entityStorage;
+    @Accessor("entityStorage") abstract TransientEntitySectionManager<Entity> kh$entityStorage();
 
     public Collection<Entity> krypton$getEntitiesInChunk(int chunkX, int chunkZ) {
         EntitySectionStorage<Entity> storage =
-                ((TransientEntitySectionManagerAccessor<Entity>) this.entityStorage).getSectionStorage();
+                ((TransientEntitySectionManagerAccessor<Entity>) this.kh$entityStorage()).getSectionStorage();
         return ((WorldEntityByChunkAccess) storage).getEntitiesInChunk(chunkX, chunkZ);
     }
 }

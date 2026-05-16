@@ -5,11 +5,10 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.world.level.ChunkPos;
+import com.xinian.KryptonHybrid.mixin.network.flushconsolidation.ChunkMapLevelAccessor;
 import com.xinian.KryptonHybrid.shared.network.chunk.DelayedChunkCache;
 import org.apache.commons.lang3.mutable.MutableObject;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -25,8 +24,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapDccMixin {
 
-    @Shadow @Final
-    ServerLevel level;
+    private ServerLevel krypton$level() {
+        return ((ChunkMapLevelAccessor) this).krypton$getLevel();
+    }
 
     @Inject(
             method = "updateChunkTracking",
@@ -41,11 +41,12 @@ public abstract class ChunkMapDccMixin {
             boolean newWithinViewDistance,
             CallbackInfo ci
     ) {
-        if (player.level() != this.level) {
+        ServerLevel level = this.krypton$level();
+        if (player.level() != level) {
             return;
         }
 
-        net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dim = this.level.dimension();
+        net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dim = level.dimension();
         if (newWithinViewDistance && !oldWithinViewDistance
                 && DelayedChunkCache.INSTANCE.onChunkEnter(player, dim, pos)) {
             ci.cancel();
@@ -61,7 +62,8 @@ public abstract class ChunkMapDccMixin {
     /** Evicts stale DCC cache entries and performs deferred {@code untrackChunk} calls. */
     @Inject(method = "tick()V", at = @At("RETURN"))
     private void tick$evictDccCache(CallbackInfo ci) {
-        DelayedChunkCache.INSTANCE.tick(this.level.dimension(), this.level.players(), ChunkMapDccMixin::dropChunkDeferred);
+        ServerLevel level = this.krypton$level();
+        DelayedChunkCache.INSTANCE.tick(level.dimension(), level.players(), ChunkMapDccMixin::dropChunkDeferred);
     }
 
     private static void dropChunkDeferred(ServerPlayer player, ChunkPos chunkPos) {

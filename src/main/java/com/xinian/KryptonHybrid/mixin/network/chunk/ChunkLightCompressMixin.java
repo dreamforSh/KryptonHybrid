@@ -4,10 +4,9 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonWireFormat;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -75,12 +74,12 @@ public abstract class ChunkLightCompressMixin {
     @Unique private static final byte ENC_UNIFORM = 0x01;
 
 
-    @Shadow @Final private BitSet skyYMask;
-    @Shadow @Final private BitSet blockYMask;
-    @Shadow @Final private BitSet emptySkyYMask;
-    @Shadow @Final private BitSet emptyBlockYMask;
-    @Shadow @Final private List<byte[]> skyUpdates;
-    @Shadow @Final private List<byte[]> blockUpdates;
+    @Accessor("skyYMask") abstract BitSet krypton$skyYMask();
+    @Accessor("blockYMask") abstract BitSet krypton$blockYMask();
+    @Accessor("emptySkyYMask") abstract BitSet krypton$emptySkyYMask();
+    @Accessor("emptyBlockYMask") abstract BitSet krypton$emptyBlockYMask();
+    @Accessor("skyUpdates") abstract List<byte[]> krypton$skyUpdates();
+    @Accessor("blockUpdates") abstract List<byte[]> krypton$blockUpdates();
 
     /**
      * Replaces the vanilla {@code write()} with Krypton's compressed variant when
@@ -97,19 +96,21 @@ public abstract class ChunkLightCompressMixin {
     private void write$krypton(FriendlyByteBuf buf, CallbackInfo ci) {
         if (!KryptonConfig.lightOptEnabled || !KryptonWireFormat.canWriteCurrentLightData()) return;
 
-        int uniformCount = krypton$countUniform(this.skyUpdates) + krypton$countUniform(this.blockUpdates);
-        int totalCount   = this.skyUpdates.size() + this.blockUpdates.size();
+        List<byte[]> skyUpdates = this.krypton$skyUpdates();
+        List<byte[]> blockUpdates = this.krypton$blockUpdates();
+        int uniformCount = krypton$countUniform(skyUpdates) + krypton$countUniform(blockUpdates);
+        int totalCount   = skyUpdates.size() + blockUpdates.size();
         int rawCount     = totalCount - uniformCount;
 
         if (2048L * uniformCount + rawCount <= 1L) return;
 
         buf.writeByte(KRYPTON_MARKER);
-        buf.writeBitSet(this.skyYMask);
-        buf.writeBitSet(this.blockYMask);
-        buf.writeBitSet(this.emptySkyYMask);
-        buf.writeBitSet(this.emptyBlockYMask);
-        krypton$writeCompressedList(buf, this.skyUpdates);
-        krypton$writeCompressedList(buf, this.blockUpdates);
+        buf.writeBitSet(this.krypton$skyYMask());
+        buf.writeBitSet(this.krypton$blockYMask());
+        buf.writeBitSet(this.krypton$emptySkyYMask());
+        buf.writeBitSet(this.krypton$emptyBlockYMask());
+        krypton$writeCompressedList(buf, skyUpdates);
+        krypton$writeCompressedList(buf, blockUpdates);
         ci.cancel();
     }
 

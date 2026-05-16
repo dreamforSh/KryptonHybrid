@@ -8,10 +8,9 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
 import net.minecraft.world.level.chunk.LevelChunk;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -79,9 +78,9 @@ public abstract class ChunkDataOptMixin {
     /** Krypton chunk-data marker byte. Never collides with vanilla NBT (starts with TAG_Compound = 0x0A). */
     @Unique private static final int KRYPTON_MARKER = 0x4B;
 
-    @Shadow @Final private CompoundTag heightmaps;
-    @Shadow @Final private byte[] buffer;
-    @Shadow @Final private List<ClientboundLevelChunkPacketData.BlockEntityInfo> blockEntitiesData;
+    @Accessor("heightmaps") abstract CompoundTag krypton$heightmaps();
+    @Accessor("buffer") abstract byte[] krypton$buffer();
+    @Accessor("blockEntitiesData") abstract List<ClientboundLevelChunkPacketData.BlockEntityInfo> krypton$blockEntitiesData();
 
     // --- Write-side fields (populated at construction from LevelChunk) ---
 
@@ -117,21 +116,18 @@ public abstract class ChunkDataOptMixin {
 
         buf.writeByte(KRYPTON_MARKER);
 
-        // --- Heightmaps (binary + XOR-delta) ---
-        ChunkDataCodec.writeHeightmaps(buf, this.heightmaps);
+        ChunkDataCodec.writeHeightmaps(buf, this.krypton$heightmaps());
 
-        // --- Split section buffer into blocks + biomes ---
-        FriendlyByteBuf blocksBuf = new FriendlyByteBuf(Unpooled.buffer(this.buffer.length));
+        byte[] buffer = this.krypton$buffer();
+        FriendlyByteBuf blocksBuf = new FriendlyByteBuf(Unpooled.buffer(buffer.length));
         FriendlyByteBuf biomesBuf = new FriendlyByteBuf(Unpooled.buffer(this.krypton$sectionCount * 4));
         try {
-            ChunkDataCodec.splitSectionBuffer(this.buffer, this.krypton$sectionCount, blocksBuf, biomesBuf);
+            ChunkDataCodec.splitSectionBuffer(buffer, this.krypton$sectionCount, blocksBuf, biomesBuf);
 
-            // Write blocks-only buffer
             int blocksLen = blocksBuf.readableBytes();
             buf.writeVarInt(blocksLen);
             buf.writeBytes(blocksBuf, blocksLen);
 
-            // Write compact biome data
             buf.writeVarInt(this.krypton$sectionCount);
             buf.writeBytes(biomesBuf, biomesBuf.readableBytes());
         } finally {
@@ -139,8 +135,7 @@ public abstract class ChunkDataOptMixin {
             biomesBuf.release();
         }
 
-        // --- Block entities (unchanged) ---
-        buf.writeCollection(this.blockEntitiesData, (packetBuf, info) ->
+        buf.writeCollection(this.krypton$blockEntitiesData(), (packetBuf, info) ->
                 ((BlockEntityInfoAccessor) (Object) info).krypton$write(packetBuf));
 
 

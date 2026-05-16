@@ -12,9 +12,8 @@ import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.handshake.ClientIntentionPacket;
 import net.minecraft.server.network.ServerHandshakePacketListenerImpl;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -28,14 +27,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * </ol>
  */
 @Mixin(ServerHandshakePacketListenerImpl.class)
-public class HandshakeValidatorMixin {
+public abstract class HandshakeValidatorMixin {
 
-    @Shadow @Final
-    private Connection connection;
+    @Accessor("connection")
+    abstract Connection krypton$getConnection();
 
     @Inject(method = "handleIntention", at = @At("HEAD"), cancellable = true)
     private void krypton$validateHandshake(ClientIntentionPacket packet, CallbackInfo ci) {
         if (!KryptonConfig.securityEnabled) return;
+        Connection connection = this.krypton$getConnection();
 
         // ?? Validate handshake fields ?????????????????????????????????
         HandshakeValidator.ValidationResult result = HandshakeValidator.validate(
@@ -45,23 +45,23 @@ public class HandshakeValidatorMixin {
 
         if (!result.valid()) {
             // Record anomaly
-            AnomalyDetector detector = AnomalyDetector.get(this.connection.channel());
+            AnomalyDetector detector = AnomalyDetector.get(connection.channel());
             detector.recordStrike(
                     AnomalyDetector.AnomalyType.PROTOCOL_VIOLATION,
                     "Invalid handshake: " + result.reason());
 
-            this.connection.disconnect(Component.literal(
+            connection.disconnect(Component.literal(
                     "Connection refused: " + result.reason()));
             ci.cancel();
             return;
         }
 
         if (packet.getIntention() == ConnectionProtocol.STATUS
-                && !StatusRequestGuard.allowStatusPing(this.connection.channel(), packet.getHostName())) {
+                && !StatusRequestGuard.allowStatusPing(connection.channel(), packet.getHostName())) {
             if (KryptonConfig.securityStatusPingSilentDrop) {
-                this.connection.channel().close();
+                connection.channel().close();
             } else {
-                this.connection.disconnect(Component.translatable("disconnect.ignoring_status_request"));
+                connection.disconnect(Component.translatable("disconnect.ignoring_status_request"));
             }
             ci.cancel();
             return;
@@ -73,8 +73,8 @@ public class HandshakeValidatorMixin {
 
         // ?? Advance timeout to LOGIN stage ????????????????????????????
         HandshakeTimeoutHandler.advanceStage(
-                this.connection.channel(), HandshakeTimeoutHandler.Stage.LOGIN);
-        PacketControlState.get(this.connection.channel()).setPhase(PacketControlPhase.LOGIN);
+                connection.channel(), HandshakeTimeoutHandler.Stage.LOGIN);
+        PacketControlState.get(connection.channel()).setPhase(PacketControlPhase.LOGIN);
     }
 }
 

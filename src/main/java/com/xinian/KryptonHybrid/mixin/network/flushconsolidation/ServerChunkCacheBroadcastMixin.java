@@ -4,9 +4,7 @@ import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastBundleCollecto
 import com.xinian.KryptonHybrid.shared.network.util.AutoFlushUtil;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -48,8 +46,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ServerChunkCache.class)
 public class ServerChunkCacheBroadcastMixin {
 
-    @Shadow @Final
-    ServerLevel level;
+    private ServerLevel krypton$level() {
+        return ((ServerChunkCacheLevelAccessor) this).krypton$getLevel();
+    }
 
     /**
      * Inject just before the {@code "broadcast"} profiler section to disable
@@ -64,16 +63,13 @@ public class ServerChunkCacheBroadcastMixin {
             )
     )
     private void krypton$beforeBroadcast(CallbackInfo ci) {
-        // Recovery: flush any stale batch from a previous failed tick
         BroadcastBundleCollector.endBatchAndFlush();
 
-        // Disable auto-flush for all players
-        for (var player : this.level.players()) {
-            AutoFlushUtil.setAutoFlush(player, true);   // recovery
+        for (var player : this.krypton$level().players()) {
+            AutoFlushUtil.setAutoFlush(player, true);
             AutoFlushUtil.setAutoFlush(player, false);
         }
 
-        // Open bundle collection window
         BroadcastBundleCollector.beginBatch();
     }
 
@@ -86,11 +82,9 @@ public class ServerChunkCacheBroadcastMixin {
             at = @At("RETURN")
     )
     private void krypton$afterBroadcast(CallbackInfo ci) {
-        // Close the bundle window ??sends BundlePackets (buffered, not flushed)
         BroadcastBundleCollector.endBatchAndFlush();
 
-        // Re-enable auto-flush ??single kernel flush per player
-        for (var player : this.level.players()) {
+        for (var player : this.krypton$level().players()) {
             AutoFlushUtil.setAutoFlush(player, true);
         }
     }

@@ -2,11 +2,11 @@ package com.xinian.KryptonHybrid.mixin.network.flushconsolidation;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import com.xinian.KryptonHybrid.mixin.network.pipeline.ConnectionAccessor;
 import com.xinian.KryptonHybrid.shared.network.flow.ConfigurableAutoFlush;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -23,10 +23,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Mixin(Connection.class)
 public abstract class ConnectionMixin implements ConfigurableAutoFlush {
 
-    @Shadow private Channel channel;
-
     @Unique
     private AtomicBoolean kryptonfnp$autoFlush;
+
+    @Unique
+    private Channel kryptonfnp$channel() {
+        return ((ConnectionAccessor) this).krypton$getChannel();
+    }
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void kryptonfnp$initAutoFlush(PacketFlow pReceiving, CallbackInfo ci) {
@@ -87,7 +90,7 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
         boolean prev = af.getAndSet(shouldAutoFlush);
         if (!prev && shouldAutoFlush) {
 
-            this.channel.flush();
+            this.kryptonfnp$channel().flush();
         }
     }
 }

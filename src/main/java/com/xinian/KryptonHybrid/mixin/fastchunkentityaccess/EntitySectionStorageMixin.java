@@ -9,11 +9,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityAccess;
 import net.minecraft.world.level.entity.EntitySection;
 import net.minecraft.world.level.entity.EntitySectionStorage;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Implements;
 import org.spongepowered.asm.mixin.Interface;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
+import org.spongepowered.asm.mixin.gen.Invoker;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,21 +28,23 @@ import java.util.List;
 @Implements(@Interface(iface = WorldEntityByChunkAccess.class, prefix = "krypton$"))
 public abstract class EntitySectionStorageMixin<T extends EntityAccess> {
 
-    @Shadow @Final private Long2ObjectMap<EntitySection<T>> sections;
+    @Accessor("sections") abstract Long2ObjectMap<EntitySection<T>> kh$sections();
 
-    @Shadow protected abstract LongSortedSet getChunkSections(int pX, int pZ);
+    @Invoker("getChunkSections")
+    abstract LongSortedSet kh$getChunkSections(int pX, int pZ);
 
     public Collection<Entity> krypton$getEntitiesInChunk(final int chunkX, final int chunkZ) {
-        final LongSortedSet sectionKeys = this.getChunkSections(chunkX, chunkZ);
+        final LongSortedSet sectionKeys = this.kh$getChunkSections(chunkX, chunkZ);
         if (sectionKeys.isEmpty()) {
             return List.of();
         }
 
+        final Long2ObjectMap<EntitySection<T>> sections = this.kh$sections();
         final List<Entity> entities = new ArrayList<>();
         final LongIterator sectionsIterator = sectionKeys.iterator();
         while (sectionsIterator.hasNext()) {
             final long key = sectionsIterator.nextLong();
-            final EntitySection<T> section = this.sections.get(key);
+            final EntitySection<T> section = sections.get(key);
             if (section != null && section.getStatus().isAccessible()) {
                 ClassInstanceMultiMap<T> storage = ((EntitySectionAccessor<T>) section).getStorage();
                 for (T entity : storage) {

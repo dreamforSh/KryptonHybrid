@@ -9,15 +9,14 @@ import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Accessor;
+import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -80,14 +79,14 @@ import java.util.Set;
 @Mixin(ServerEntity.class)
 public abstract class ServerEntityDataThrottleMixin {
 
-    @Shadow @Final private Entity entity;
+    @Accessor("entity")
+    abstract Entity krypton$getEntity();
 
-    @Shadow @Nullable private List<SynchedEntityData.DataValue<?>> trackedDataValues;
+    @Accessor("trackedDataValues")
+    abstract void krypton$setTrackedDataValues(List<SynchedEntityData.DataValue<?>> values);
 
-    @Shadow
-    private void broadcastAndSend(Packet<?> packet) {
-        throw new AssertionError();
-    }
+    @Invoker("broadcastAndSend")
+    abstract void krypton$broadcastAndSend(Packet<?> packet);
 
     /**
      * Per-entity cache of the last broadcast value for each {@link SynchedEntityData}
@@ -126,29 +125,27 @@ public abstract class ServerEntityDataThrottleMixin {
     private void krypton$throttledSendDirtyEntityData(CallbackInfo ci) {
         ci.cancel();
 
-        SynchedEntityData data = this.entity.getEntityData();
+        Entity entity = this.krypton$getEntity();
+        SynchedEntityData data = entity.getEntityData();
         List<SynchedEntityData.DataValue<?>> dirtyList = data.packDirty();
 
         if (dirtyList != null) {
-            // Always update trackedDataValues for correct addPairing initial state
-            this.trackedDataValues = data.getNonDefaultValues();
+            this.krypton$setTrackedDataValues(data.getNonDefaultValues());
 
-            // Filter: only keep entries whose value actually changed
             List<SynchedEntityData.DataValue<?>> filtered = krypton$filterUnchanged(dirtyList);
 
             if (!filtered.isEmpty()) {
-                this.broadcastAndSend(
-                        new ClientboundSetEntityDataPacket(this.entity.getId(), filtered)
+                this.krypton$broadcastAndSend(
+                        new ClientboundSetEntityDataPacket(entity.getId(), filtered)
                 );
             }
         }
 
-        // Attribute sync ??unchanged from vanilla
-        if (this.entity instanceof LivingEntity living) {
+        if (entity instanceof LivingEntity living) {
             Set<AttributeInstance> set = living.getAttributes().getDirtyAttributes();
             if (!set.isEmpty()) {
-                this.broadcastAndSend(
-                        new ClientboundUpdateAttributesPacket(this.entity.getId(), set)
+                this.krypton$broadcastAndSend(
+                        new ClientboundUpdateAttributesPacket(entity.getId(), set)
                 );
             }
             set.clear();

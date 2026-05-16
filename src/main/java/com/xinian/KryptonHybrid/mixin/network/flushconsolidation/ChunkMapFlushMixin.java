@@ -7,9 +7,7 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.broadcast.EntityBundleCollector;
 import com.xinian.KryptonHybrid.shared.network.flow.MicroBatchFlusher;
 import com.xinian.KryptonHybrid.shared.network.util.AutoFlushUtil;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -64,8 +62,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapFlushMixin {
 
-    @Shadow @Final
-    ServerLevel level;
+    private ServerLevel krypton$level() {
+        return ((ChunkMapLevelAccessor) this).krypton$getLevel();
+    }
 
     /**
      * Disable auto-flush for every player and open the bundle collection window
@@ -86,7 +85,7 @@ public abstract class ChunkMapFlushMixin {
         EntityBundleCollector.endBatchAndFlush();
 
         // Step 2??: Recovery re-enable then disable auto-flush
-        for (ServerPlayer player : this.level.players()) {
+        for (ServerPlayer player : this.krypton$level().players()) {
             AutoFlushUtil.setAutoFlush(player, true);
             AutoFlushUtil.setAutoFlush(player, false);
         }
@@ -115,12 +114,12 @@ public abstract class ChunkMapFlushMixin {
         if (KryptonConfig.microBatchFlushEnabled) {
             // Keep autoFlush=false; the scheduled task will set it back to true
             // and call channel.flush() once after the configured delay window.
-            for (ServerPlayer player : this.level.players()) {
+            for (ServerPlayer player : this.krypton$level().players()) {
                 MicroBatchFlusher.scheduleFlush(player);
             }
         } else {
             // Re-enable auto-flush ??triggers single kernel flush
-            for (ServerPlayer player : this.level.players()) {
+            for (ServerPlayer player : this.krypton$level().players()) {
                 AutoFlushUtil.setAutoFlush(player, true);
             }
         }
