@@ -47,8 +47,7 @@ public class PacketEncoderMixin {
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
         PacketControlContext.setCurrentChannel(ctx.channel());
 
-        // 1.19.2 has no vanilla bundle delimiter packet.
-        // Hand the Packet reference to ZstdCompressEncoder via thread-local.
+
         BroadcastSerializationCache.setCurrentPacket(packet);
 
         if (!kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
@@ -75,7 +74,7 @@ public class PacketEncoderMixin {
         NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), bytes);
         NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), bytes);
 
-        // Cache only safe PLAY-phase packets to avoid protocol-phase/id mismatches.
+
         if (kryptonfnp$shouldUseBroadcastCache(ctx, packet) && bytes > 0 && bytes < 65536) {
             byte[] serialized = new byte[bytes];
             out.getBytes(out.readerIndex(), serialized);

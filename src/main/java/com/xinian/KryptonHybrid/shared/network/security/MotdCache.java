@@ -1,7 +1,6 @@
 package com.xinian.KryptonHybrid.shared.network.security;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
-import net.minecraft.network.protocol.status.ClientboundStatusResponsePacket;
 import net.minecraft.network.protocol.status.ServerStatus;
 
 import java.util.Locale;
@@ -92,7 +91,7 @@ public final class MotdCache {
     }
 
     private static String encodeStatusJson(ServerStatus status) {
-        return ClientboundStatusResponsePacket.GSON.toJson(status);
+        return status.getJson();
     }
 
     private record JsonEntry(String json, long expiresAtMs) {}
