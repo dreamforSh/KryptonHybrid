@@ -60,10 +60,19 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
         int maxPending = KryptonConfig.securityMaxPendingWrites;
 
         // ── Pending queue limit ───────────────────────────────────────
-        if (pending > maxPending) {
+        // Only enforce the hard message-count cap when the channel is ALSO unwritable
+        // (i.e. Netty's outbound buffer has crossed the high watermark). A writable
+        // channel means the bytes are draining fine — bursts during legitimate flows
+        // such as login/teleport chunk batching can briefly push the count above the
+        // cap without representing a slow-client attack, and the previous unconditional
+        // check produced false positives like "exceeded limit: 4097". Both signals
+        // together (count + unwritable) are required to confirm real backpressure.
+        if (pending > maxPending && !ctx.channel().isWritable()) {
             pendingWrites.decrementAndGet();
             SecurityMetrics.INSTANCE.recordWriteDropped();
-            promise.setFailure(new IOException("Pending write queue exceeded limit: " + pending));
+            promise.setFailure(new PendingWriteOverflowException(
+                    "Pending write queue exceeded limit: " + pending
+                            + " (channel unwritable, dropping)"));
             // Release the message to prevent memory leak
             io.netty.util.ReferenceCountUtil.release(msg);
             return;
@@ -115,8 +124,8 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
         super.channelRead(ctx, msg);
     }
 
-    private static class IOException extends Exception {
-        IOException(String message) {
+    private static class PendingWriteOverflowException extends java.io.IOException {
+        PendingWriteOverflowException(String message) {
             super(message);
         }
 
