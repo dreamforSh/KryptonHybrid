@@ -10,9 +10,12 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -24,7 +27,7 @@ import java.util.List;
  * NBT delta encoding.
  *
  * <h3>Problem</h3>
- * <p>{@code ChunkHolder.broadcastBlockEntity(List, Level, BlockPos)} retrieves the
+ * <p>{@code ChunkHolder.broadcastBlockEntity(Level, BlockPos)} retrieves the
  * block entity's update packet (containing the <em>full</em> NBT tag) and broadcasts
  * it to all nearby players.  For frequently-updating block entities (furnaces, hoppers,
  * redstone), most NBT keys are unchanged between ticks.</p>
@@ -42,14 +45,20 @@ import java.util.List;
  */
 @Mixin(ChunkHolder.class)
 public class ChunkHolderBlockEntityMixin {
+    @Shadow
+    @Final
+    private ChunkHolder.PlayerProvider playerProvider;
+
+    @Shadow
+    @Final
+    private ChunkPos pos;
 
     /**
-     * Intercepts the private {@code broadcastBlockEntity(List, Level, BlockPos)}
+     * Intercepts the private {@code broadcastBlockEntity(Level, BlockPos)}
      * method to apply per-player delta encoding.
      */
     @Inject(method = "broadcastBlockEntity", at = @At("HEAD"), cancellable = true)
-    private void krypton$deltaBlockEntity(List<ServerPlayer> players, Level level,
-                                          BlockPos pos, CallbackInfo ci) {
+    private void krypton$deltaBlockEntity(Level level, BlockPos pos, CallbackInfo ci) {
         if (!KryptonConfig.blockEntityDeltaEnabled) {
             return;
         }
@@ -72,6 +81,7 @@ public class ChunkHolderBlockEntityMixin {
             return;
         }
 
+        List<ServerPlayer> players = this.playerProvider.getPlayers(this.pos, false);
         CompoundTag fullTag = bePacket.getTag();
         if (fullTag == null || fullTag.isEmpty()) {
             // Empty tag ??send as-is to all players

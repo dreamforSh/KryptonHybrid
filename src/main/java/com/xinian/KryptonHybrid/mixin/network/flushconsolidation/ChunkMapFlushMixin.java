@@ -8,6 +8,7 @@ import com.xinian.KryptonHybrid.shared.network.broadcast.EntityBundleCollector;
 import com.xinian.KryptonHybrid.shared.network.flow.MicroBatchFlusher;
 import com.xinian.KryptonHybrid.shared.network.util.AutoFlushUtil;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -62,6 +63,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapFlushMixin {
 
+    @Unique
     private ServerLevel krypton$level() {
         return ((ChunkMapLevelAccessor) this).krypton$getLevel();
     }

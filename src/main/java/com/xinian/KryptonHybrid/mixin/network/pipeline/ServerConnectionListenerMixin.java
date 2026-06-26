@@ -73,14 +73,21 @@ public class ServerConnectionListenerMixin {
                     new PacketSizeValidator());
         }
 
-        // ?? 4. Netty resource guard (before packet_handler, write side) ????
+        // ?? 4. Legacy query guard (before vanilla legacy ping handler) ??????
+        if (pipeline.get("legacy_query") != null) {
+            pipeline.addBefore("legacy_query",
+                    LegacyQueryGuardHandler.HANDLER_NAME,
+                    new LegacyQueryGuardHandler());
+        }
+
+        // ?? 5. Netty resource guard (before packet_handler, write side) ????
         if (pipeline.get("packet_handler") != null) {
             pipeline.addBefore("packet_handler",
                     NettyResourceGuard.HANDLER_NAME,
                     new NettyResourceGuard());
         }
 
-        // ?? 5. Initialize anomaly detector attribute ??????????????????????
+        // ?? 6. Initialize anomaly detector attribute ??????????????????????
         AnomalyDetector.get(channel);
         PacketControlState.get(channel).setPhase(PacketControlPhase.HANDSHAKE);
     }

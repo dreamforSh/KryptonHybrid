@@ -4,7 +4,10 @@ import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastBundleCollecto
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -17,11 +20,10 @@ import java.util.List;
  * a collection window is active.
  *
  * <h3>Target method</h3>
- * <p>{@code ChunkHolder.broadcast(List<ServerPlayer>, Packet<?>)} is the private
- * helper that iterates over a player list and calls
- * {@code player.connection.send(packet)} for each.  It is used by
- * {@code broadcastChanges()} to distribute block updates, light updates, and
- * block-entity updates to nearby players.</p>
+ * <p>{@code ChunkHolder.broadcast(Packet<?>, boolean)} is the method that iterates
+ * over tracked players and calls {@code player.connection.send(packet)}
+ * for each.  It is used by {@code broadcastChanges()} to distribute block
+ * updates, light updates, and block-entity updates to nearby players.</p>
  *
  * <h3>Redirect behavior</h3>
  * <p>When the {@link BroadcastBundleCollector} has an active collection window
@@ -32,15 +34,25 @@ import java.util.List;
 @Mixin(ChunkHolder.class)
 public class ChunkHolderBroadcastMixin {
 
+    @Shadow
+    @Final
+    private ChunkHolder.PlayerProvider playerProvider;
+
+    @Shadow
+    @Final
+    private ChunkPos pos;
+
     /**
-     * Intercepts {@code broadcast(List, Packet)} to collect packets into the
+     * Intercepts {@code broadcast(Packet, boolean)} to collect packets into the
      * broadcast bundle collector when a collection window is active.
      */
     @Inject(method = "broadcast", at = @At("HEAD"), cancellable = true)
-    private void krypton$collectBroadcast(List<ServerPlayer> players, Packet<?> packet, CallbackInfo ci) {
+    private void krypton$collectBroadcast(Packet<?> packet, boolean boundaryOnly, CallbackInfo ci) {
         if (!BroadcastBundleCollector.isCollecting()) {
             return;
         }
+
+        List<ServerPlayer> players = this.playerProvider.getPlayers(this.pos, boundaryOnly);
 
         // Collect for each player instead of sending immediately
         for (ServerPlayer player : players) {
@@ -50,4 +62,3 @@ public class ChunkHolderBroadcastMixin {
         ci.cancel();
     }
 }
-
