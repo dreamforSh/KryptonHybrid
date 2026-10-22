@@ -4,6 +4,7 @@ import com.xinian.KryptonHybrid.mixin.network.microopt.MoveEntityPacketAccessor;
 import com.xinian.KryptonHybrid.mixin.network.microopt.RotateHeadPacketAccessor;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastBundleCollector;
+import com.xinian.KryptonHybrid.shared.network.blockentity.BlockEntityDeltaCache;
 import com.xinian.KryptonHybrid.shared.network.broadcast.EntityBundleCollector;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -120,10 +121,14 @@ public final class PacketCoalescer {
                     }
                 }
             } else if (pkt instanceof ClientboundBlockEntityDataPacket blockEntity) {
+                // Only a later FULL tag supersedes earlier packets for the position: a
+                // delta is relative to the previous packet, so it never replaces one.
                 long posLong = blockEntity.getPos().asLong();
-                if (seenBlockEntity == null) seenBlockEntity = new HashMap<>();
-                if (seenBlockEntity.put(posLong, Boolean.TRUE) != null) {
+                if (seenBlockEntity != null && seenBlockEntity.containsKey(posLong)) {
                     packets.remove(i);
+                } else if (!BlockEntityDeltaCache.isDelta(blockEntity.getTag())) {
+                    if (seenBlockEntity == null) seenBlockEntity = new HashMap<>();
+                    seenBlockEntity.put(posLong, Boolean.TRUE);
                 }
             }
         }

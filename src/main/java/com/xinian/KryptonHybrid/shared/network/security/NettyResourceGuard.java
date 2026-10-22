@@ -17,9 +17,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *       {@link WriteBufferWaterMark} so Netty signals when the pending outbound
  *       buffer exceeds the high watermark and resumes when it drops below the low
  *       watermark.</li>
- *   <li><strong>Pending queue limit:</strong> tracks the number of pending writes
- *       and drops new writes when the limit is exceeded, preventing unbounded memory
- *       growth.</li>
+ *   <li><strong>Pending queue limit:</strong> tracks the number of pending writes;
+ *       once the limit is exceeded <em>and</em> the channel has been unwritable for
+ *       the unwritable timeout, the connection is closed, preventing unbounded memory
+ *       growth without disconnecting healthy players during bursts.</li>
  *   <li><strong>Unwritable timeout:</strong> if a channel stays unwritable for too
  *       long (slow client), the connection is forcibly closed.</li>
  * </ul>
@@ -35,6 +36,9 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
 
     /** Timestamp when the channel became unwritable (0 if writable). */
     private volatile long unwritableSince = 0;
+
+    /** Set once a stalled channel has been closed, so it is only logged once. */
+    private boolean closing;
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -57,22 +61,38 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
         }
 
         long pending = pendingWrites.incrementAndGet();
-        int maxPending = KryptonConfig.securityMaxPendingWrites;
 
-        // ?? Pending queue limit ???????????????????????????????????????
-        if (pending > maxPending) {
+        // Bursts (joining, teleporting, a dense entity tick under flush consolidation)
+        // can queue thousands of writes on a healthy connection, and failing a write
+        // disconnects the player anyway (vanilla adds FIRE_EXCEPTION_ON_FAILURE). Only
+        // a peer that is over the limit *and* has not drained for
+        // max_unwritable_seconds is treated as a slow reader; the channel is then
+        // closed once instead of failing writes one by one.
+        if (pending > KryptonConfig.securityMaxPendingWrites && isStalled()) {
             pendingWrites.decrementAndGet();
             SecurityMetrics.INSTANCE.recordWriteDropped();
-            promise.setFailure(new IOException("Pending write queue exceeded limit: " + pending));
-            // Release the message to prevent memory leak
             io.netty.util.ReferenceCountUtil.release(msg);
+            promise.setFailure(new IOException("Peer stopped reading; pending writes: " + pending));
+            if (!closing) {
+                closing = true;
+                LOGGER.warn("[Krypton Security] Closing stalled connection ({} pending writes, unwritable for {} ms): {}",
+                        pending, System.currentTimeMillis() - unwritableSince, ctx.channel().remoteAddress());
+                ctx.close();
+            }
             return;
         }
 
-        // Decrement on completion
-        promise.addListener((ChannelFutureListener) future -> pendingWrites.decrementAndGet());
+        // Decrement on completion (a void promise cannot take listeners)
+        ChannelPromise tracked = promise.unvoid();
+        tracked.addListener((ChannelFutureListener) future -> pendingWrites.decrementAndGet());
 
-        super.write(ctx, msg, promise);
+        super.write(ctx, msg, tracked);
+    }
+
+    private boolean isStalled() {
+        long since = unwritableSince;
+        return since != 0
+                && System.currentTimeMillis() - since > KryptonConfig.securityMaxUnwritableSeconds * 1000L;
     }
 
     @Override

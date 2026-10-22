@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.shared.network.compression;
 import com.velocitypowered.natives.compression.VelocityCompressor;
 import com.xinian.KryptonHybrid.shared.network.security.DecompressionBombGuard;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import net.minecraft.network.FriendlyByteBuf;
@@ -11,7 +12,6 @@ import java.util.List;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.velocitypowered.natives.util.MoreByteBufUtils.ensureCompatible;
-import static com.velocitypowered.natives.util.MoreByteBufUtils.preferredBuffer;
 
 /**
  * Decompresses a Minecraft packet.
@@ -24,6 +24,11 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
     private static final int UNCOMPRESSED_CAP =
             Boolean.getBoolean("krypton.permit-oversized-packets")
                     ? HARD_MAXIMUM_UNCOMPRESSED_SIZE : VANILLA_MAXIMUM_UNCOMPRESSED_SIZE;
+    /**
+     * One growth step of the Java fallback inflater, so a stream that exactly fills
+     * the claimed size can still consume its trailer.
+     */
+    private static final int INFLATE_SLACK = 8192;
     private final VelocityCompressor compressor;
     private final boolean validate;
     private int threshold;
@@ -66,9 +71,12 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize, ctx.channel());
 
         ByteBuf compatibleIn = ensureCompatible(ctx.alloc(), compressor, in);
-        ByteBuf uncompressed = preferredBuffer(ctx.alloc(), compressor, claimedUncompressedSize);
+        ByteBuf uncompressed = boundedBuffer(ctx.alloc(), claimedUncompressedSize);
         try {
             compressor.inflate(compatibleIn, uncompressed, claimedUncompressedSize);
+            checkState(uncompressed.readableBytes() == claimedUncompressedSize,
+                    "Uncompressed size %s does not match claimed size %s",
+                    uncompressed.readableBytes(), claimedUncompressedSize);
             out.add(uncompressed);
         } catch (Exception e) {
             uncompressed.release();
@@ -76,6 +84,21 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
         } finally {
             compatibleIn.release();
         }
+    }
+
+    /**
+     * Like {@code MoreByteBufUtils.preferredBuffer}, but caps the capacity just above
+     * the claimed size. Velocity's Java fallback inflater (used where no native
+     * library is available) grows its destination 8 KiB at a time for as long as
+     * input remains, so without a cap a small claimed size followed by a highly
+     * compressible stream inflates without bound.
+     */
+    private ByteBuf boundedBuffer(ByteBufAllocator alloc, int claimedUncompressedSize) {
+        int maxCapacity = (int) Math.min(Integer.MAX_VALUE, (long) claimedUncompressedSize + INFLATE_SLACK);
+        return switch (compressor.preferredBufferType()) {
+            case HEAP_REQUIRED, HEAP_PREFERRED -> alloc.heapBuffer(claimedUncompressedSize, maxCapacity);
+            case DIRECT_PREFERRED, DIRECT_REQUIRED -> alloc.directBuffer(claimedUncompressedSize, maxCapacity);
+        };
     }
 
     @Override

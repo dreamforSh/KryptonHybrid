@@ -7,8 +7,6 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -52,22 +50,28 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        InetAddress address = extractAddress(ctx);
-        if (address == null) {
-            // Memory connection (singleplayer) ??always allow
+        String ip = RateLimitKeys.of(ctx.channel());
+        if (ip == null) {
+            // Memory connection, loopback, or behind a proxy: not IP-limited
             super.channelActive(ctx);
             return;
         }
 
-        String ip = address.getHostAddress();
         ConnectionBudget budget = WINDOWS.computeIfAbsent(ip, k -> new ConnectionBudget());
         if (!budget.tryAcquire()) {
             SecurityMetrics.INSTANCE.recordConnectionRateLimited();
-            LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} (rate={}, burst={}, quarantine={}s)",
-                    ip,
-                    KryptonConfig.securityConnectionRatePerSecond,
-                    KryptonConfig.securityConnectionBurstLimit,
-                    KryptonConfig.securityConnectionQuarantineSeconds);
+            if (budget.shouldLogViolation()) {
+                LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} (rate={}, burst={}, quarantine={}s)",
+                        ip,
+                        KryptonConfig.securityConnectionRatePerSecond,
+                        KryptonConfig.securityConnectionBurstLimit,
+                        KryptonConfig.securityConnectionQuarantineSeconds);
+            }
+            // Let vanilla's Connection see channelActive first: it only assigns its
+            // channel there, and ServerConnectionListener already holds the Connection.
+            // Closing before that leaves channel == null, so the Connection is never
+            // ticked or removed and its disconnect path throws NPEs.
+            super.channelActive(ctx);
             ctx.close();
             return;
         }
@@ -84,13 +88,6 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         WINDOWS.entrySet().removeIf(e -> now - e.getValue().lastAccessTime() > 60_000L);
     }
 
-    private static InetAddress extractAddress(ChannelHandlerContext ctx) {
-        if (ctx.channel().remoteAddress() instanceof InetSocketAddress inet) {
-            return inet.getAddress();
-        }
-        return null;
-    }
-
     // ?? Sliding window implementation ?????????????????????????????????
 
     static final class ConnectionBudget {
@@ -99,6 +96,7 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         private volatile long lastAccess = System.currentTimeMillis();
         private volatile long lastConnectTime;
         private volatile long quarantineUntilMs;
+        private volatile long lastLogMs;
         private int consecutiveViolations;
 
         synchronized boolean tryAcquire() {
@@ -156,6 +154,15 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
 
         long lastAccessTime() {
             return lastAccess;
+        }
+
+        synchronized boolean shouldLogViolation() {
+            long nowMs = System.currentTimeMillis();
+            if (nowMs - lastLogMs < 5000L) {
+                return false;
+            }
+            lastLogMs = nowMs;
+            return true;
         }
     }
 }

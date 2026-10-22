@@ -475,6 +475,8 @@ public final class KryptonForgeConfig {
         securityWriteWatermarkHigh = builder
                 .defineInRange("watermark_high", 2_097_152, 1024, Integer.MAX_VALUE);
         securityMaxPendingWrites = builder
+                .comment("A connection over this many pending writes that has also been",
+                        "unwritable for max_unwritable_seconds is closed as a slow reader.")
                 .defineInRange("max_pending_writes", 4096, 1, Integer.MAX_VALUE);
         securityMaxUnwritableSeconds = builder
                 .defineInRange("max_unwritable_seconds", 15, 1, 3600);
@@ -703,11 +705,11 @@ public final class KryptonForgeConfig {
                 .comment(
                         "Proxy detection mode.",
                         "  NONE     - No proxy; all optimizations active (direct connection).",
-                        "  AUTO     - Auto-detect Velocity via login plugin channel.",
-                        "             When detected, forces ZLIB on backend and gates custom",
-                        "             wire formats behind capability negotiation.",
-                        "  VELOCITY - Assume Velocity proxy; always use ZLIB backend",
-                        "             compression and gate custom wire formats.",
+                        "  AUTO     - Currently behaves like VELOCITY (no detection yet).",
+                        "  VELOCITY - Assume a proxy (Velocity/BungeeCord); always use ZLIB backend",
+                        "             compression and skip per-IP connection/status-ping limits,",
+                        "             since every player arrives from the proxy's address.",
+                        "Set this to VELOCITY whenever the server sits behind any proxy.",
                         "Default: NONE"
                 )
                 .defineEnum("mode", ProxyMode.NONE);

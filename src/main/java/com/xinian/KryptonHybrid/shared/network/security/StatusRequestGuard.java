@@ -5,8 +5,6 @@ import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -47,12 +45,11 @@ public final class StatusRequestGuard {
     }
 
     private static boolean allow(Channel channel, String kind, double cost, String detail) {
-        InetAddress address = extractAddress(channel);
-        if (address == null) {
+        String ip = RateLimitKeys.of(channel);
+        if (ip == null) {
             return true;
         }
 
-        String ip = address.getHostAddress();
         StatusBudget budget = WINDOWS.computeIfAbsent(ip, key -> new StatusBudget());
         if (budget.tryAcquire(cost)) {
             return true;
@@ -75,13 +72,6 @@ public final class StatusRequestGuard {
                     KryptonConfig.securityStatusPingQuarantineSeconds);
         }
         return false;
-    }
-
-    private static InetAddress extractAddress(Channel channel) {
-        if (channel.remoteAddress() instanceof InetSocketAddress inet) {
-            return inet.getAddress();
-        }
-        return null;
     }
 
     static final class StatusBudget {
