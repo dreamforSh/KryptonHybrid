@@ -144,8 +144,12 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
 
         int compressedSize = in.readableBytes();
 
-        // --- Decompression bomb guard ---
-        DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
+        // --- Decompression bomb guard (server side only: validate is false on the client,
+        // whose server legitimately sends packets far above any ratio limit, e.g. uniform
+        // light or map data) ---
+        if (validate) {
+            DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
+        }
 
         // --- Fast path: direct input ??direct output, zero-copy ---
         if (in.isDirect() && in.nioBufferCount() == 1) {

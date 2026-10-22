@@ -3,16 +3,19 @@ package com.xinian.KryptonHybrid.mixin.network.pipeline;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.PacketEncoder;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlContext;
-import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
-import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -31,6 +34,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(PacketEncoder.class)
 public class PacketEncoderMixin {
+
+    @Shadow @Final private PacketFlow flow;
 
     /**
      * HEAD inject: check the broadcast serialization cache before encoding.
@@ -83,15 +88,20 @@ public class PacketEncoderMixin {
         PacketControlContext.clearCurrentChannel();
     }
 
+    /**
+     * Only server-to-client PLAY packets are broadcast. The protocol comes from vanilla's
+     * own channel attribute, so the cache works whether or not the security handlers
+     * (which track their own connection phase) are installed.
+     */
     @Unique
-    private static boolean kryptonfnp$shouldUseBroadcastCache(ChannelHandlerContext ctx, Packet<?> packet) {
-        if (!KryptonConfig.broadcastCacheEnabled) {
+    private boolean kryptonfnp$shouldUseBroadcastCache(ChannelHandlerContext ctx, Packet<?> packet) {
+        if (!KryptonConfig.broadcastCacheEnabled || this.flow != PacketFlow.CLIENTBOUND) {
             return false;
         }
         if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
             return false;
         }
-        return PacketControlState.get(ctx.channel()).getPhase() == PacketControlPhase.PLAY;
+        return ctx.channel().attr(Connection.ATTRIBUTE_PROTOCOL).get() == ConnectionProtocol.PLAY;
     }
 
     @Unique

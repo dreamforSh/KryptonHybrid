@@ -80,9 +80,9 @@ public final class MotdCache {
                 legacyMisses.get());
     }
 
+    /** A performance cache with its own switch; it does not follow {@code security.enabled}. */
     private static boolean isEnabled() {
-        return KryptonConfig.securityEnabled
-                && KryptonConfig.motdCacheEnabled
+        return KryptonConfig.motdCacheEnabled
                 && KryptonConfig.motdCacheTtlMs > 0;
     }
 

@@ -125,8 +125,8 @@ public final class KryptonConfig {
 
     // --- Network security / independent packet control ---
 
-    /** Global security kill-switch. */
-    public static volatile boolean securityEnabled = true;
+    /** Global security kill-switch (off by default). */
+    public static volatile boolean securityEnabled = false;
 
     /** Sustained connection attempts per second per remote IP. */
     public static volatile int securityConnectionRatePerSecond = 8;
@@ -155,7 +155,7 @@ public final class KryptonConfig {
 
 
     public static volatile int securityHandshakeTimeoutSec = 5;
-    public static volatile int securityLoginTimeoutSec = 10;
+    public static volatile int securityLoginTimeoutSec = 30;
     public static volatile int securityPlayTimeoutSec = 30;
 
     /** Maximum decoded frame size accepted after packet splitting. */

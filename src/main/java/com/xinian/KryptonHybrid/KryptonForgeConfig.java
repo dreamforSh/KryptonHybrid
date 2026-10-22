@@ -322,8 +322,10 @@ public final class KryptonForgeConfig {
         ).push("security");
 
         securityEnabled = builder
-                .comment("Global security kill-switch.", "Default: true")
-                .define("enabled", true);
+                .comment("Global security kill-switch. Off by default: the guards are opt-in because",
+                        "per-IP limits and timeouts need tuning for each server's network setup.",
+                        "Default: false")
+                .define("enabled", false);
 
         builder.comment("Connection-rate limiting and rapid reconnect protection.").push("connection_rate_limit");
 
@@ -363,7 +365,10 @@ public final class KryptonForgeConfig {
         builder.comment("Handshake/login timeout budgets.").push("timeouts");
 
         securityHandshakeTimeoutSec = builder.defineInRange("handshake_sec", 5, 1, 300);
-        securityLoginTimeoutSec = builder.defineInRange("login_sec", 10, 1, 300);
+        securityLoginTimeoutSec = builder
+                .comment("Covers Mojang authentication and the Forge mod/registry handshake;",
+                        "vanilla allows 30 s for the whole login.", "Range: 1 - 300  |  Default: 30")
+                .defineInRange("login_sec", 30, 1, 300);
         securityPlayTimeoutSec = builder.defineInRange("play_sec", 30, 1, 3600);
 
         builder.pop();

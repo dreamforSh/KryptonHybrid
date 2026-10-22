@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Per-IP throttle for server-list STATUS pings and old legacy pings.
@@ -20,6 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class StatusRequestGuard {
     private static final Logger LOGGER = LoggerFactory.getLogger("KryptonSecurity");
     private static final Map<String, StatusBudget> WINDOWS = new ConcurrentHashMap<>();
+    /** Idle buckets are dropped after this long, unless still quarantined. */
+    private static final long IDLE_EVICT_MS = 60_000L;
+    private static final long EVICT_INTERVAL_MS = 30_000L;
+    private static final AtomicLong NEXT_EVICT_MS = new AtomicLong();
 
     private StatusRequestGuard() {}
 
@@ -39,9 +44,22 @@ public final class StatusRequestGuard {
         return allow(channel, "legacy", 1.5D, "legacy_bytes=" + readableBytes);
     }
 
+    /**
+     * Drops buckets of addresses that have been idle for a minute and are not
+     * quarantined. Runs from the connection path at most every 30 s, so the map stays
+     * bounded by the addresses seen recently.
+     */
     public static void evictStaleWindows() {
         long now = System.currentTimeMillis();
-        WINDOWS.entrySet().removeIf(e -> now - e.getValue().lastAccessTime() > 60_000L);
+        WINDOWS.values().removeIf(budget -> budget.evictable(now));
+    }
+
+    private static void evictStaleWindowsIfDue() {
+        long now = System.currentTimeMillis();
+        long due = NEXT_EVICT_MS.get();
+        if (now >= due && NEXT_EVICT_MS.compareAndSet(due, now + EVICT_INTERVAL_MS)) {
+            evictStaleWindows();
+        }
     }
 
     private static boolean allow(Channel channel, String kind, double cost, String detail) {
@@ -50,6 +68,7 @@ public final class StatusRequestGuard {
             return true;
         }
 
+        evictStaleWindowsIfDue();
         StatusBudget budget = WINDOWS.computeIfAbsent(ip, key -> new StatusBudget());
         if (budget.tryAcquire(cost)) {
             return true;
@@ -125,6 +144,10 @@ public final class StatusRequestGuard {
             }
 
             tokens = Math.min(burst, tokens + (elapsed / 1_000_000_000.0D) * rate);
+        }
+
+        boolean evictable(long nowMs) {
+            return nowMs - lastAccess > IDLE_EVICT_MS && quarantineUntilMs <= nowMs;
         }
 
         long lastAccessTime() {

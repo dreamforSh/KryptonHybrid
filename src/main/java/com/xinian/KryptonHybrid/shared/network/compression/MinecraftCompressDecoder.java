@@ -67,8 +67,12 @@ public class MinecraftCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
                     UNCOMPRESSED_CAP);
         }
 
-        // --- Decompression bomb guard ---
-        DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize, ctx.channel());
+        // --- Decompression bomb guard (server side only: validate is false on the client,
+        // whose server legitimately sends packets far above any ratio limit, e.g. uniform
+        // light or map data) ---
+        if (validate) {
+            DecompressionBombGuard.validate(in.readableBytes(), claimedUncompressedSize, ctx.channel());
+        }
 
         ByteBuf compatibleIn = ensureCompatible(ctx.alloc(), compressor, in);
         ByteBuf uncompressed = boundedBuffer(ctx.alloc(), claimedUncompressedSize);

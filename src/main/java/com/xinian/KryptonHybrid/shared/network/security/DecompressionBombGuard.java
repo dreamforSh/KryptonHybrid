@@ -23,7 +23,9 @@ import org.slf4j.LoggerFactory;
  *       Default ratio limit: 100:1.</li>
  * </ol>
  *
- * <p>Both thresholds are configurable via the {@code [security]} config section.</p>
+ * <p>Both thresholds are configurable via the {@code [security]} config section.
+ * Only the server applies them, to packets from clients; a client never checks
+ * what its own server sends.</p>
  */
 public final class DecompressionBombGuard {
 

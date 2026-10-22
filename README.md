@@ -171,7 +171,7 @@ Requires operator permission level 2.
 
 ### 8. Network Security & DDoS Protection
 
-Krypton Hybrid includes a comprehensive, configurable network security layer injected directly into the Netty pipeline. All features are gated behind a single `security.enabled` toggle and can be fine-tuned via the `[security]` section in `krypton_hybrid-common.toml`.
+Krypton Hybrid includes a comprehensive, configurable network security layer injected directly into the Netty pipeline. All features are gated behind a single `security.enabled` toggle, **off by default**, and can be fine-tuned via the `[security]` section in `krypton_hybrid-common.toml`. Tune the per-IP limits and timeouts for your network setup (proxies, tunnels, shared NAT addresses) before turning it on. Optimizations such as the broadcast serialization cache and the MOTD cache do not depend on this toggle.
 
 #### Netty Pipeline (Security Handlers)
 
@@ -195,7 +195,7 @@ Krypton Hybrid includes a comprehensive, configurable network security layer inj
 | Module | Class | Description |
 |---|---|---|
 | **Connection Rate Limiter** | `ConnectionRateLimiter` | Per-IP sliding-window counter. Closes new connections exceeding the burst limit (default: 20/s). `@Sharable` singleton — zero per-connection allocation. |
-| **Handshake Timeout** | `HandshakeTimeoutHandler` | Stage-aware `ReadTimeoutHandler`: HANDSHAKE 5s → LOGIN 10s → PLAY 30s. Prevents half-open connection exhaustion. |
+| **Handshake Timeout** | `HandshakeTimeoutHandler` | Stage-aware `ReadTimeoutHandler`: HANDSHAKE 5s → LOGIN 30s → PLAY 30s. Prevents half-open connection exhaustion. |
 | **Packet Size Validator** | `PacketSizeValidator` | Post-frame-decode size check (default max: 2 MiB). Rejects empty frames and force-closes on severely oversized packets (>4× limit). |
 | **Handshake Validator** | `HandshakeValidator` | Validates server address length/content and port range. Rejects scanning bots and malformed clients at earliest stage. |
 | **Anomaly Detector** | `AnomalyDetector` | Per-connection weighted strike system. Tracks HMAC failures (weight 3), compression errors (2), protocol violations (3), invalid packets (2), missing hello (1). Disconnects at threshold (default: 10 strikes). |
@@ -206,19 +206,23 @@ Krypton Hybrid includes a comprehensive, configurable network security layer inj
 
 ```toml
 [security]
-  enabled = true                            # Global kill-switch
+  enabled = false                           # Global kill-switch (off by default)
 
   [security.connection_rate_limit]
-    rate = 10                               # Per-IP sustained connections/s
+    rate = 8                                # Per-IP sustained connections/s
     burst = 20                              # Per-IP burst limit
+
+  [security.decompression_guard]            # Checked by the server on client packets only
+    max_decompressed_bytes = 16777216
+    max_ratio = 100
 
   [security.timeouts]
     handshake_sec = 5
-    login_sec = 10
+    login_sec = 30                          # Mojang auth + Forge handshake (vanilla: 30s)
     play_sec = 30
 
   [security.packet_size]
-    max_bytes = 2097152                     # 2 MiB max decoded frame
+    frame_max_bytes = 2097152               # 2 MiB max decoded frame
 
   [security.handshake_validation]
     max_address_length = 255
@@ -231,9 +235,6 @@ Krypton Hybrid includes a comprehensive, configurable network security layer inj
     watermark_high = 2097152               # 2 MiB
     max_pending_writes = 4096
     max_unwritable_seconds = 15
-
-  [security.metrics]
-    interval_sec = 300                      # Summary log interval (0 = disabled)
 ```
 
 ## test data
