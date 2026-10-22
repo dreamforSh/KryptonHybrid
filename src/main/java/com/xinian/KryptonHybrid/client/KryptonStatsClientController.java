@@ -2,6 +2,7 @@ package com.xinian.KryptonHybrid.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay;
+import com.xinian.KryptonHybrid.client.screen.KryptonConfigScreen;
 import com.xinian.KryptonHybrid.client.screen.KryptonStatsScreen;
 import com.xinian.KryptonHybrid.client.ui.GeometryCache;
 import com.xinian.KryptonHybrid.KryptonHybrid;
@@ -12,8 +13,10 @@ import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotRequestPaylo
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
+import net.minecraftforge.client.ConfigScreenHandler;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -72,6 +75,9 @@ public final class KryptonStatsClientController {
 
     public static void init(IEventBus modEventBus) {
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, KryptonClientConfig.SPEC);
+        // "Config" button in the Mods list opens the visual config editor.
+        ModLoadingContext.get().registerExtensionPoint(ConfigScreenHandler.ConfigScreenFactory.class,
+                () -> new ConfigScreenHandler.ConfigScreenFactory((minecraft, parent) -> new KryptonConfigScreen(parent)));
         modEventBus.addListener(KryptonStatsClientController::onConfigLoad);
         modEventBus.addListener(KryptonStatsClientController::onConfigReload);
         modEventBus.addListener(KryptonStatsClientController::onRegisterKeyMappings);
@@ -114,6 +120,7 @@ public final class KryptonStatsClientController {
         snapshotReceiveCount = 0L;
         pendingOpen = false;
         KryptonStatsHistory.clear();
+        RemoteServerConfig.clear();
         GeometryCache.release("");
     }
 
@@ -178,6 +185,21 @@ public final class KryptonStatsClientController {
         return latestSnapshotReceivedAtMs == 0L
                 ? Long.MAX_VALUE
                 : Math.max(0L, System.currentTimeMillis() - latestSnapshotReceivedAtMs);
+    }
+
+    /**
+     * This client's ping in milliseconds as the server last reported it in the player
+     * list (refreshed by vanilla keep-alives), or {@link Double#NaN} when unknown or
+     * on a local (singleplayer) connection.
+     */
+    public static double latencyMs() {
+        Minecraft minecraft = Minecraft.getInstance();
+        ClientPacketListener listener = minecraft.getConnection();
+        if (listener == null || minecraft.player == null || listener.getConnection().isMemoryConnection()) {
+            return Double.NaN;
+        }
+        PlayerInfo info = listener.getPlayerInfo(minecraft.player.getUUID());
+        return info == null ? Double.NaN : info.getLatency();
     }
 
     /** Compression actually installed on this client's connection (after negotiation). */

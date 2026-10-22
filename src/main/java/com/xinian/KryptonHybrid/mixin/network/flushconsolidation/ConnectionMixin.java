@@ -4,6 +4,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import com.xinian.KryptonHybrid.mixin.network.pipeline.ConnectionAccessor;
 import com.xinian.KryptonHybrid.shared.network.flow.ConfigurableAutoFlush;
+import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Optimizes {@link Connection} by adding the ability to disable auto-flushing.
@@ -26,6 +28,10 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
     @Unique
     private AtomicBoolean kryptonfnp$autoFlush;
 
+    /** Packets written but not flushed since the last consolidated flush (event loop only). */
+    @Unique
+    private AtomicInteger kryptonfnp$deferred;
+
     @Unique
     private Channel kryptonfnp$channel() {
         return ((ConnectionAccessor) this).krypton$getChannel();
@@ -34,6 +40,7 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
     @Inject(method = "<init>", at = @At("RETURN"))
     private void kryptonfnp$initAutoFlush(PacketFlow pReceiving, CallbackInfo ci) {
         this.kryptonfnp$autoFlush = new AtomicBoolean(true);
+        this.kryptonfnp$deferred = new AtomicInteger();
     }
 
     /**
@@ -78,6 +85,7 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
     private ChannelFuture kryptonfnp$writeOrFlush(Channel channel, Object msg) {
         AtomicBoolean af = this.kryptonfnp$autoFlush;
         if (af != null && !af.get()) {
+            this.kryptonfnp$deferred.incrementAndGet();
             return channel.write(msg);
         }
         return channel.writeAndFlush(msg);
@@ -89,8 +97,30 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
         if (af == null) return;
         boolean prev = af.getAndSet(shouldAutoFlush);
         if (!prev && shouldAutoFlush) {
-
-            this.kryptonfnp$channel().flush();
+            Channel channel = this.kryptonfnp$channel();
+            if (channel == null) return;
+            // Sends from other threads reach the channel as event-loop tasks; flushing as a
+            // task too runs after them, so the flush and its packet count cover all of them.
+            if (channel.eventLoop().inEventLoop()) {
+                kryptonfnp$flushDeferred(channel);
+            } else {
+                channel.eventLoop().execute(() -> kryptonfnp$flushDeferred(channel));
+            }
         }
+    }
+
+    @Override
+    public boolean isAutoFlushing() {
+        AtomicBoolean af = this.kryptonfnp$autoFlush;
+        return af == null || af.get();
+    }
+
+    @Unique
+    private void kryptonfnp$flushDeferred(Channel channel) {
+        int packets = this.kryptonfnp$deferred.getAndSet(0);
+        if (packets > 0) {
+            NetworkTrafficStats.INSTANCE.recordConsolidatedFlush(packets);
+        }
+        channel.flush();
     }
 }

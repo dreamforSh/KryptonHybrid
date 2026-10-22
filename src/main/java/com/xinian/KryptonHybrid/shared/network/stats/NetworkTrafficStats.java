@@ -41,10 +41,11 @@ public final class NetworkTrafficStats {
     private final AtomicLong bytesSentOriginal = new AtomicLong();
     private final AtomicLong bytesSentWire = new AtomicLong();
     private final AtomicLong bytesReceived = new AtomicLong();
-    // Bundle/coalesce hit-rate counters.
-    private final AtomicLong bundlesEmitted = new AtomicLong();
-    private final AtomicLong bundlePacketsTotal = new AtomicLong();
-    private final AtomicLong bundleBatchesObserved = new AtomicLong();
+    // Flush consolidation: flushes that released held writes, and how many packets they carried.
+    private final AtomicLong consolidatedFlushes = new AtomicLong();
+    private final AtomicLong deferredPackets = new AtomicLong();
+    // Tick batching: packets written by the collectors, and packets coalescing dropped first.
+    private final AtomicLong batchedPackets = new AtomicLong();
     private final AtomicLong coalesceDroppedPackets = new AtomicLong();
     private final ConcurrentHashMap<String, TypeStats> perTypeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perModStats  = new ConcurrentHashMap<>();
@@ -137,9 +138,9 @@ public final class NetworkTrafficStats {
         bytesSentOriginal.set(0);
         bytesSentWire.set(0);
         bytesReceived.set(0);
-        bundlesEmitted.set(0);
-        bundlePacketsTotal.set(0);
-        bundleBatchesObserved.set(0);
+        consolidatedFlushes.set(0);
+        deferredPackets.set(0);
+        batchedPackets.set(0);
         coalesceDroppedPackets.set(0);
         perTypeStats.clear();
         perModStats.clear();
@@ -148,40 +149,41 @@ public final class NetworkTrafficStats {
         startTimeMs = System.currentTimeMillis();
     }
 
-    // P1-??bundle/coalesce metric APIs
+    // Flush consolidation and tick batching metrics
 
-    /**
-     * Records the result of one batch flush.
-     * @param batchPlayers number of player connections that had ?? packet collected
-     *                     (i.e. distinct keys in the batch map)
-     * @param emittedBundles number of those players that ended up actually receiving
-     *                       a {@link net.minecraft.network.protocol.game.ClientboundBundlePacket}
-     *                       (i.e. ?? packets after coalescing)
-     * @param packetsInBundles total sub-packet count across all emitted bundles
-     */
-    public void recordBundleBatch(int batchPlayers, int emittedBundles, int packetsInBundles) {
-        if (batchPlayers > 0) bundleBatchesObserved.addAndGet(batchPlayers);
-        if (emittedBundles > 0) bundlesEmitted.addAndGet(emittedBundles);
-        if (packetsInBundles > 0) bundlePacketsTotal.addAndGet(packetsInBundles);
+    /** One flush that released {@code packets} writes held back by flush consolidation. */
+    public void recordConsolidatedFlush(int packets) {
+        consolidatedFlushes.incrementAndGet();
+        deferredPackets.addAndGet(packets);
+    }
+
+    /** Packets the per-tick collectors wrote after coalescing. */
+    public void recordBatchedPackets(int packets) {
+        if (packets > 0) batchedPackets.addAndGet(packets);
     }
 
     public void recordCoalesceDropped(int dropped) {
         if (dropped > 0) coalesceDroppedPackets.addAndGet(dropped);
     }
 
-    public long getBundlesEmitted() { return bundlesEmitted.get(); }
-    public long getBundlePacketsTotal() { return bundlePacketsTotal.get(); }
-    public long getBundleBatchesObserved() { return bundleBatchesObserved.get(); }
+    public long getConsolidatedFlushes() { return consolidatedFlushes.get(); }
+    public long getDeferredPackets() { return deferredPackets.get(); }
+    public long getBatchedPackets() { return batchedPackets.get(); }
     public long getCoalesceDroppedPackets() { return coalesceDroppedPackets.get(); }
 
-    public double getAvgBundleSize() {
-        long b = bundlesEmitted.get();
-        return b == 0 ? 0.0 : (double) bundlePacketsTotal.get() / (double) b;
+    /** Average packets sent per consolidated flush. */
+    public double getPacketsPerFlush() {
+        long flushes = consolidatedFlushes.get();
+        return flushes == 0 ? 0.0 : (double) deferredPackets.get() / (double) flushes;
     }
 
-    public double getBundleHitRate() {
-        long obs = bundleBatchesObserved.get();
-        return obs == 0 ? 0.0 : (double) bundlesEmitted.get() / (double) obs;
+    /**
+     * Share of flushes avoided compared with flushing every held packet on its own:
+     * {@code 1 - flushes / packets}.
+     */
+    public double getFlushSavingRate() {
+        long packets = deferredPackets.get();
+        return packets == 0 ? 0.0 : 1.0 - (double) consolidatedFlushes.get() / (double) packets;
     }
 
     public long getSavedBytes() {

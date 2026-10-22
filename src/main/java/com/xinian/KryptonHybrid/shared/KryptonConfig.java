@@ -269,27 +269,6 @@ public final class KryptonConfig {
      */
     public static volatile boolean broadcastCacheEnabled = true;
 
-    // --- P0 Bundle Forced Compression ---
-
-    /**
-     * If {@code true}, sub-packets emitted between {@code BundleDelimiterPacket}
-     * frames are forcibly compressed even when their individual size is below
-     * {@link #zstdLevel}-paired compression threshold.  Combined with a loaded
-     * Zstd dictionary, this typically reduces total bundle wire size by 10??5%
-     * because small sub-packets gain access to the shared dictionary entropy.
-     * The compressor falls back to raw output if compressed size would exceed
-     * uncompressed size, so enabling this never causes wire growth.
-     * Default: {@code true}.
-     */
-    public static volatile boolean bundleAlwaysCompress = true;
-
-    /**
-     * Minimum uncompressed size (bytes) of a bundle sub-packet before forced
-     * compression engages.  Packets smaller than this are still skipped to avoid
-     * the marginal CPU cost of tiny-payload Zstd calls.  Default: {@code 24}.
-     */
-    public static volatile int bundleCompressMinBytes = 24;
-
     // --- P0 Compressed-bytes Broadcast Cache ---
 
     /**

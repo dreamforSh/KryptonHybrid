@@ -7,7 +7,11 @@ import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiatio
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
+import com.xinian.KryptonHybrid.shared.network.config.ServerConfigSync;
 import com.xinian.KryptonHybrid.shared.network.payload.OpenDashboardPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigRequestPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigSnapshotPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigUpdatePayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotRequestPayload;
 import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
@@ -38,8 +42,9 @@ public final class KryptonHybrid {
     // Bump whenever a Krypton wire format changes, so peers running an older build are
     // refused at login instead of misparsing packets. 2: light data carries trustEdges,
     // compression algorithm is negotiated. 3: stats snapshot carries status/legacy ping
-    // drops, open-dashboard message.
-    private static final String NETWORK_VERSION = "3";
+    // drops, open-dashboard message. 4: snapshot reports flush consolidation instead of
+    // bundles (1.19.2 has no bundle packet). 5: operator server-config messages.
+    private static final String NETWORK_VERSION = "5";
 
     public static final SimpleChannel NETWORK = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID, "main"),
@@ -118,6 +123,50 @@ public final class KryptonHybrid {
                 .decoder(OpenDashboardPayload::decode)
                 .consumerMainThread(KryptonHybrid::handleOpenDashboard)
                 .add();
+        NETWORK.messageBuilder(ServerConfigRequestPayload.class, 4, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ServerConfigRequestPayload::encode)
+                .decoder(ServerConfigRequestPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigRequest)
+                .add();
+        NETWORK.messageBuilder(ServerConfigSnapshotPayload.class, 5, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(ServerConfigSnapshotPayload::encode)
+                .decoder(ServerConfigSnapshotPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigSnapshot)
+                .add();
+        NETWORK.messageBuilder(ServerConfigUpdatePayload.class, 6, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ServerConfigUpdatePayload::encode)
+                .decoder(ServerConfigUpdatePayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigUpdate)
+                .add();
+    }
+
+    /** Operators read the server's network config; everyone else gets a permission error. */
+    private static void handleServerConfigRequest(ServerConfigRequestPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        ServerPlayer sender = ctx.getSender();
+        if (sender != null) {
+            NETWORK.send(PacketDistributor.PLAYER.with(() -> sender), ServerConfigSync.snapshot(sender, null));
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    /** Applies an operator's changes (permission re-checked) and answers with the result. */
+    private static void handleServerConfigUpdate(ServerConfigUpdatePayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        ServerPlayer sender = ctx.getSender();
+        if (sender != null) {
+            String error = ServerConfigSync.apply(sender, payload.changes());
+            NETWORK.send(PacketDistributor.PLAYER.with(() -> sender), ServerConfigSync.snapshot(sender, error));
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    private static void handleServerConfigSnapshot(ServerConfigSnapshotPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientPayloadRegistration.handleServerConfig(payload);
+        }
+        ctx.setPacketHandled(true);
     }
 
     private static void handleOpenDashboard(OpenDashboardPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {

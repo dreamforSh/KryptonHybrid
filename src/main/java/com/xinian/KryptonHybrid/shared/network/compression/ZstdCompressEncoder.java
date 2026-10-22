@@ -10,7 +10,6 @@ import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastCompressedCache;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
-import com.xinian.KryptonHybrid.shared.network.broadcast.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.resources.ResourceLocation;
@@ -123,15 +122,8 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             }
         }
 
-        // ?? P0 Bundle forced-compression: lower the threshold for sub-packets
-        //    bracketed by BundleDelimiterPacket frames. ??
-        int effectiveThreshold = threshold;
-        if (KryptonConfig.bundleAlwaysCompress && BundleEncodeContext.isInBundle()) {
-            effectiveThreshold = Math.max(1, KryptonConfig.bundleCompressMinBytes);
-        }
-
         // --- Below threshold: pass through uncompressed ---
-        if (uncompressedSize < effectiveThreshold) {
+        if (uncompressedSize < threshold) {
             wrappedOut.writeVarInt(0);
             out.writeBytes(msg);
             int wire = out.writerIndex() - startWireIndex;

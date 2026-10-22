@@ -21,6 +21,8 @@ public final class KryptonClientConfig {
     private static final ForgeConfigSpec.IntValue HUD_REFRESH_MS;
     private static final ForgeConfigSpec.BooleanValue HUD_SHOW_TOP_MOD;
     private static final ForgeConfigSpec.BooleanValue HUD_SHOW_GRAPH;
+    private static final ForgeConfigSpec.BooleanValue HUD_SHOW_LATENCY;
+    private static final ForgeConfigSpec.IntValue HUD_BACKGROUND_OPACITY;
 
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
@@ -40,6 +42,12 @@ public final class KryptonClientConfig {
         HUD_SHOW_TOP_MOD = builder.define("show_top_mod", true);
         HUD_SHOW_GRAPH = builder.comment("Draw live rate sparklines next to the HUD values.")
                 .define("show_graph", true);
+        HUD_SHOW_LATENCY = builder.comment("Show this connection's ping (from the player list) on the HUD.")
+                .define("show_latency", true);
+        HUD_BACKGROUND_OPACITY = builder.comment(
+                        "HUD background opacity in percent. 0 is fully transparent: no card, only",
+                        "text (with shadow) and sparklines.")
+                .defineInRange("background_opacity", 70, 0, 100);
         builder.pop();
 
         SPEC = builder.build();
@@ -47,7 +55,8 @@ public final class KryptonClientConfig {
 
     private KryptonClientConfig() {}
 
-    static void apply() {
+    /** Copies the file's values into the live UI state (also used by the config screen after edits). */
+    public static void apply() {
         UITheme.setMode(THEME.get());
         UITheme.setPanelOpacityPercent(PANEL_OPACITY.get());
         KryptonHudOverlay.setVisible(HUD_VISIBLE.get());
@@ -55,6 +64,8 @@ public final class KryptonClientConfig {
         KryptonHudOverlay.setAutoRefreshIntervalMs(HUD_REFRESH_MS.get());
         KryptonHudOverlay.setShowTopMod(HUD_SHOW_TOP_MOD.get());
         KryptonHudOverlay.setShowGraph(HUD_SHOW_GRAPH.get());
+        KryptonHudOverlay.setShowLatency(HUD_SHOW_LATENCY.get());
+        KryptonHudOverlay.setBackgroundOpacityPercent(HUD_BACKGROUND_OPACITY.get());
     }
 
     public static void save() {
@@ -68,6 +79,8 @@ public final class KryptonClientConfig {
         HUD_REFRESH_MS.set((int) KryptonHudOverlay.autoRefreshIntervalMs());
         HUD_SHOW_TOP_MOD.set(KryptonHudOverlay.showTopMod());
         HUD_SHOW_GRAPH.set(KryptonHudOverlay.showGraph());
+        HUD_SHOW_LATENCY.set(KryptonHudOverlay.showLatency());
+        HUD_BACKGROUND_OPACITY.set(KryptonHudOverlay.backgroundOpacityPercent());
         SPEC.save();
     }
 }

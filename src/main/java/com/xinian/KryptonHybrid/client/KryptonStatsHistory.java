@@ -24,7 +24,8 @@ public final class KryptonStatsHistory {
 
     /**
      * One interval's rates. {@code savingPercent} is {@link Double#NaN} when nothing
-     * was sent in the interval.
+     * was sent in the interval; {@code latencyMs} is this client's ping as last
+     * reported by the server, or {@link Double#NaN} when unknown or local.
      */
     public record Sample(long atMs,
                          double outWireBps,
@@ -32,7 +33,8 @@ public final class KryptonStatsHistory {
                          double inBps,
                          double outPps,
                          double inPps,
-                         double savingPercent) {}
+                         double savingPercent,
+                         double latencyMs) {}
 
     /** A plottable series of {@link Sample}. */
     public enum Field {
@@ -41,7 +43,8 @@ public final class KryptonStatsHistory {
         IN(Sample::inBps),
         OUT_PPS(Sample::outPps),
         IN_PPS(Sample::inPps),
-        SAVING(Sample::savingPercent);
+        SAVING(Sample::savingPercent),
+        LATENCY(Sample::latencyMs);
 
         private final ToDoubleFunction<Sample> extractor;
 
@@ -84,7 +87,8 @@ public final class KryptonStatsHistory {
                         dIn / seconds,
                         dOutPackets / seconds,
                         dInPackets / seconds,
-                        saving));
+                        saving,
+                        KryptonStatsClientController.latencyMs()));
             }
             changed();
         }

@@ -6,7 +6,6 @@ import com.xinian.KryptonHybrid.client.KryptonStatsClientController;
 import com.xinian.KryptonHybrid.client.KryptonStatsHistory;
 import com.xinian.KryptonHybrid.client.compat.KryptonGuiGraphics;
 import com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay;
-import com.xinian.KryptonHybrid.client.ui.Anim;
 import com.xinian.KryptonHybrid.client.ui.Charts;
 import com.xinian.KryptonHybrid.client.ui.Fmt;
 import com.xinian.KryptonHybrid.client.ui.GeometryCache;
@@ -15,17 +14,15 @@ import com.xinian.KryptonHybrid.client.ui.UITheme;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.util.FormattedCharSequence;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
+import java.util.function.IntConsumer;
+import java.util.function.Supplier;
 
 /**
  * Krypton stats dashboard: a translucent floating panel over the game world.
@@ -40,7 +37,7 @@ import java.util.Map;
  * table), security (all guard counters plus client diagnostics). The gear button
  * swaps the content for the settings view.</p>
  */
-public final class KryptonStatsScreen extends Screen {
+public final class KryptonStatsScreen extends KryptonScreen {
 
     private enum Tab { OVERVIEW, TRAFFIC, MODS, SECURITY }
     private enum ModSort { NAME, BYTES, PACKETS, AVG }
@@ -50,8 +47,8 @@ public final class KryptonStatsScreen extends Screen {
     private static final int TABS_H = 16;
     private static final int FOOTER_H = 14;
     private static final int PAD = 10;
-    private static final float CARD_RADIUS = 5F;
     private static final int[] OPACITY_STEPS = {55, 70, 85, 100};
+    private static final int[] HUD_OPACITY_STEPS = {0, 35, 70, 100};
     private static final long[] HUD_REFRESH_STEPS = {1000L, 2000L, 5000L};
 
     /** Remembered for the session so reopening lands on the same tab. */
@@ -69,11 +66,8 @@ public final class KryptonStatsScreen extends Screen {
     private int px, py, pw, ph;
     private int cx, cy, cw, ch;
     private int modListX, modListY, modListW, modListH;
-
-    private final List<Hit> hits = new ArrayList<>();
-    private final Anim anim = new Anim();
-    private final Map<String, String> translations = new HashMap<>();
-    private List<Component> tooltip;
+    private int settingsScroll;
+    private int settingsContentH;
 
     // Sorted/filtered mod lists, rebuilt only when the snapshot (by identity) or the view changes.
     private StatsSnapshotPayload topModsSnapshot;
@@ -83,26 +77,14 @@ public final class KryptonStatsScreen extends Screen {
     private ModSort modsSort;
     private boolean modsAscending;
     private List<StatsSnapshotPayload.ModEntry> modsCache = List.of();
-    private int mouseX, mouseY;
-
-    private record Hit(int x, int y, int w, int h, Runnable action) {
-        boolean contains(double mx, double my) {
-            return mx >= x && mx < x + w && my >= y && my < y + h;
-        }
-    }
 
     public KryptonStatsScreen() {
         super(Component.translatable("gui.krypton_hybrid.dash.title"));
     }
 
     @Override
-    public boolean isPauseScreen() {
-        return false;
-    }
-
-    @Override
     protected void init() {
-        translations.clear();
+        super.init();
         pw = clamp(this.width - 32, 300, 540);
         ph = clamp(this.height - 28, 200, 340);
         px = (this.width - pw) / 2;
@@ -147,20 +129,14 @@ public final class KryptonStatsScreen extends Screen {
 
     @Override
     public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        this.mouseX = mouseX;
-        this.mouseY = mouseY;
-        this.hits.clear();
-        this.tooltip = null;
-        anim.frame();
+        beginFrame(mouseX, mouseY);
 
         KryptonGuiGraphics g = new KryptonGuiGraphics(poseStack);
         g.beginBatch();
         var c = UITheme.colors();
         StatsSnapshotPayload snap = KryptonStatsClientController.latestSnapshot();
 
-        g.fill(0, 0, this.width, this.height, 0x48000000);
-        Shapes.roundRect(g, px, py, pw, ph, 8, UITheme.panelBackground());
-        Shapes.roundRectStroke(g, px, py, pw, ph, 8, stroke(), UITheme.withAlpha(c.widgetBorder(), 0xD0));
+        drawPanel(g, px, py, pw, ph);
 
         renderHeader(g);
         renderTabs(g);
@@ -380,7 +356,8 @@ public final class KryptonStatsScreen extends Screen {
 
         long totalEvents = snap.securityTotalEvents();
         String[] stripText = {
-                Component.translatable("gui.krypton_hybrid.dash.strip.bundle", Fmt.percent(snap.bundleHitRatePercent())).getString(),
+                Component.translatable("gui.krypton_hybrid.dash.strip.flush",
+                        String.format(Locale.ROOT, "%.1f", snap.packetsPerFlush())).getString(),
                 Component.translatable("gui.krypton_hybrid.dash.strip.coalesce", Fmt.percent(snap.coalesceDropRatePercent())).getString(),
                 Component.translatable("gui.krypton_hybrid.dash.strip.avg",
                         Fmt.bytes(snap.averageOriginalPacketBytes()), Fmt.bytes(snap.averageWirePacketBytes())).getString(),
@@ -524,8 +501,8 @@ public final class KryptonStatsScreen extends Screen {
 
         int my = cy + ch - meterH;
         int mw = (cw - gap * 2) / 3;
-        meter(g, cx, my, mw, "gui.krypton_hybrid.dash.meter.bundle", snap.bundleHitRatePercent(),
-                qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
+        meter(g, cx, my, mw, "gui.krypton_hybrid.dash.meter.flush", snap.flushSavingPercent(),
+                qualityColor(snap.flushSavingPercent(), 80.0, 50.0));
         meter(g, cx + mw + gap, my, mw, "gui.krypton_hybrid.dash.meter.coalesce", snap.coalesceDropRatePercent(),
                 c.accentLight());
         meter(g, cx + (mw + gap) * 2, my, mw, "gui.krypton_hybrid.dash.meter.coverage", snap.trackedCoveragePercent(),
@@ -791,35 +768,37 @@ public final class KryptonStatsScreen extends Screen {
     private void renderSettings(KryptonGuiGraphics g) {
         var c = UITheme.colors();
         int rowH = 14;
-        int y = cy;
+        int firstHit = hits.size();
+        List<Component> tooltipBefore = tooltip;
+        int y = cy - settingsScroll;
+
         g.drawString(this.font, translate("gui.krypton_hybrid.dash.settings.dashboard"), cx, y, c.textSecondary(), false);
         y += 12;
-        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.theme",
+        y = segmentedRow(g, cx, y, cw, rowH, "theme", translate("gui.krypton_hybrid.dash.settings.theme"),
+                settingTip("theme"),
                 new String[]{
                         translate("gui.krypton_hybrid.dash.settings.theme.dark"),
                         translate("gui.krypton_hybrid.dash.settings.theme.light")
                 },
                 UITheme.getMode().ordinal(),
-                i -> UITheme.setMode(UITheme.Mode.values()[i]));
-        String[] opacityLabels = new String[OPACITY_STEPS.length];
-        int opacityIndex = 0;
-        for (int i = 0; i < OPACITY_STEPS.length; i++) {
-            opacityLabels[i] = OPACITY_STEPS[i] + "%";
-            if (OPACITY_STEPS[i] <= UITheme.panelOpacityPercent()) {
-                opacityIndex = i;
-            }
-        }
-        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.opacity", opacityLabels, opacityIndex,
-                i -> UITheme.setPanelOpacityPercent(OPACITY_STEPS[i]));
+                saving(i -> UITheme.setMode(UITheme.Mode.values()[i])));
+        y = segmentedRow(g, cx, y, cw, rowH, "opacity", translate("gui.krypton_hybrid.dash.settings.opacity"),
+                settingTip("opacity"),
+                percentLabels(OPACITY_STEPS, null), stepIndex(OPACITY_STEPS, UITheme.panelOpacityPercent()),
+                saving(i -> UITheme.setPanelOpacityPercent(OPACITY_STEPS[i])));
+        y = cycleRow(g, cx, y, cw, rowH, "config", translate("gui.krypton_hybrid.dash.settings.config"),
+                settingTip("config"), translate("gui.krypton_hybrid.dash.settings.config.open"),
+                () -> this.minecraft.setScreen(new KryptonConfigScreen(this)));
 
         y += 6;
         g.drawString(this.font, translate("gui.krypton_hybrid.dash.settings.hud"), cx, y, c.textSecondary(), false);
         y += 12;
-        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_visible",
-                KryptonHudOverlay.isVisible(), KryptonHudOverlay::toggleVisible);
-        y = cycleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_anchor",
+        y = toggleRow(g, cx, y, cw, rowH, "hud_visible", translate("gui.krypton_hybrid.dash.settings.hud_visible"),
+                settingTip("hud_visible"), KryptonHudOverlay.isVisible(), saving(KryptonHudOverlay::toggleVisible));
+        y = cycleRow(g, cx, y, cw, rowH, "hud_anchor", translate("gui.krypton_hybrid.dash.settings.hud_anchor"),
+                settingTip("hud_anchor"),
                 translate("gui.krypton_hybrid.dash.settings.anchor." + KryptonHudOverlay.anchor().name().toLowerCase(Locale.ROOT)),
-                KryptonHudOverlay::cycleAnchor);
+                saving(KryptonHudOverlay::cycleAnchor));
         String[] refreshLabels = new String[HUD_REFRESH_STEPS.length];
         int refreshIndex = 0;
         for (int i = 0; i < HUD_REFRESH_STEPS.length; i++) {
@@ -829,111 +808,71 @@ public final class KryptonStatsScreen extends Screen {
                 refreshIndex = i;
             }
         }
-        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_refresh", refreshLabels, refreshIndex,
-                i -> KryptonHudOverlay.setAutoRefreshIntervalMs(HUD_REFRESH_STEPS[i]));
-        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_graph",
-                KryptonHudOverlay.showGraph(), KryptonHudOverlay::toggleShowGraph);
-        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_top_mod",
-                KryptonHudOverlay.showTopMod(), KryptonHudOverlay::toggleShowTopMod);
+        y = segmentedRow(g, cx, y, cw, rowH, "hud_refresh", translate("gui.krypton_hybrid.dash.settings.hud_refresh"),
+                settingTip("hud_refresh"), refreshLabels, refreshIndex,
+                saving(i -> KryptonHudOverlay.setAutoRefreshIntervalMs(HUD_REFRESH_STEPS[i])));
+        y = segmentedRow(g, cx, y, cw, rowH, "hud_background", translate("gui.krypton_hybrid.dash.settings.hud_background"),
+                settingTip("hud_background"),
+                percentLabels(HUD_OPACITY_STEPS, translate("gui.krypton_hybrid.dash.settings.hud_background.clear")),
+                stepIndex(HUD_OPACITY_STEPS, KryptonHudOverlay.backgroundOpacityPercent()),
+                saving(i -> KryptonHudOverlay.setBackgroundOpacityPercent(HUD_OPACITY_STEPS[i])));
+        y = toggleRow(g, cx, y, cw, rowH, "hud_latency", translate("gui.krypton_hybrid.dash.settings.hud_latency"),
+                settingTip("hud_latency"), KryptonHudOverlay.showLatency(), saving(KryptonHudOverlay::toggleShowLatency));
+        y = toggleRow(g, cx, y, cw, rowH, "hud_graph", translate("gui.krypton_hybrid.dash.settings.hud_graph"),
+                settingTip("hud_graph"), KryptonHudOverlay.showGraph(), saving(KryptonHudOverlay::toggleShowGraph));
+        y = toggleRow(g, cx, y, cw, rowH, "hud_top_mod", translate("gui.krypton_hybrid.dash.settings.hud_top_mod"),
+                settingTip("hud_top_mod"), KryptonHudOverlay.showTopMod(), saving(KryptonHudOverlay::toggleShowTopMod));
 
+        y += 6;
         String hint = translate("gui.krypton_hybrid.dash.settings.saved_hint");
-        g.drawString(this.font, Fmt.truncate(this.font, hint, cw), cx, Math.max(y + 6, cy + ch - 10), c.textMuted(), false);
+        g.drawString(this.font, Fmt.truncate(this.font, hint, cw), cx, y, c.textMuted(), false);
+        y += 10;
+
+        // Scrolled-away rows are clipped visually; keep them from reacting too.
+        settingsContentH = y + settingsScroll - cy;
+        hits.subList(firstHit, hits.size()).removeIf(h -> h.y() + h.h() <= cy || h.y() >= cy + ch);
+        if (!inside(cx, cy, cw, ch)) {
+            tooltip = tooltipBefore;
+        }
     }
 
-    /** Row background with a fading hover highlight and the setting's label; returns the hover state. */
-    private boolean settingRowBase(KryptonGuiGraphics g, int y, int h, String key) {
-        var c = UITheme.colors();
-        boolean hover = inside(cx, y, cw, h);
-        float hoverAnim = anim.hover("setting." + key, hover);
-        if (hoverAnim > 0.01F) {
-            Shapes.roundRect(g, cx, y, cw, h - 1, 4, UITheme.withAlpha(c.accent(), (int) (0x24 * hoverAnim)));
-        }
-        if (hover) {
-            tooltip = List.of(Component.translatable(key), Component.translatable(key + ".desc"));
-        }
-        g.drawString(this.font, translate(key), cx + 6, y + (h - 8) / 2, c.textPrimary(), false);
-        return hover;
+    private Supplier<List<Component>> settingTip(String id) {
+        String key = "gui.krypton_hybrid.dash.settings." + id;
+        return () -> List.of(Component.translatable(key), Component.translatable(key + ".desc"));
     }
 
-    /** On/off switch with a sliding knob; the whole row toggles it. */
-    private int toggleRow(KryptonGuiGraphics g, int y, int h, String key, boolean on, Runnable toggle) {
-        var c = UITheme.colors();
-        settingRowBase(g, y, h, key);
-        float t = anim.approach("toggle." + key, on ? 1F : 0F, 14F);
-        float tw = 18F;
-        float th = 10F;
-        float tx = cx + cw - tw - 5;
-        float ty = y + (h - 1 - th) / 2F;
-        int offTrack = UITheme.withAlpha(c.widgetBorderHover(), 0xA0);
-        Shapes.pill(g, tx, ty, tw, th, UITheme.lerpColor(offTrack, c.successColor(), t));
-        float knob = th - 3F;
-        Shapes.circle(g, tx + 1.5F + knob / 2 + t * (tw - th), ty + th / 2, knob / 2, 0xFFFFFFFF);
-        hits.add(new Hit(cx, y, cw, h, () -> {
-            toggle.run();
+    /** Applies a setting change and persists it. */
+    private static Runnable saving(Runnable change) {
+        return () -> {
+            change.run();
             KryptonClientConfig.save();
-        }));
-        return y + h;
+        };
     }
 
-    /** Value pill that advances to the next option on click. */
-    private int cycleRow(KryptonGuiGraphics g, int y, int h, String key, String value, Runnable next) {
-        var c = UITheme.colors();
-        boolean hover = settingRowBase(g, y, h, key);
-        float hoverAnim = anim.hover("cycle." + key, hover);
-        String label = value + "  ›";
-        int vw = this.font.width(label);
-        float bw = vw + 12;
-        float bh = 11F;
-        float bx = cx + cw - bw - 5;
-        float by = y + (h - 1 - bh) / 2F;
-        Shapes.pill(g, bx, by, bw, bh, UITheme.withAlpha(c.accent(), 0x38 + (int) (0x30 * hoverAnim)));
-        g.drawString(this.font, label, (int) (bx + 6), (int) (by + 2), c.accentLight(), false);
-        hits.add(new Hit(cx, y, cw, h, () -> {
-            next.run();
+    private static IntConsumer saving(IntConsumer change) {
+        return i -> {
+            change.accept(i);
             KryptonClientConfig.save();
-        }));
-        return y + h;
+        };
     }
 
-    /** Segmented control whose selection pill slides to the chosen option. */
-    private int segmentedRow(KryptonGuiGraphics g, int y, int h, String key, String[] options, int selected,
-                             java.util.function.IntConsumer select) {
-        var c = UITheme.colors();
-        settingRowBase(g, y, h, key);
-        int pad = 6;
-        int[] widths = new int[options.length];
-        int total = 0;
-        for (int i = 0; i < options.length; i++) {
-            widths[i] = this.font.width(options[i]) + pad * 2;
-            total += widths[i];
+    private static String[] percentLabels(int[] steps, String zeroLabel) {
+        String[] labels = new String[steps.length];
+        for (int i = 0; i < steps.length; i++) {
+            labels[i] = steps[i] == 0 && zeroLabel != null ? zeroLabel : steps[i] + "%";
         }
-        float th = 11F;
-        float tx = cx + cw - total - 7;
-        float ty = y + (h - 1 - th) / 2F;
-        Shapes.pill(g, tx - 1, ty - 1, total + 2, th + 2, UITheme.withAlpha(c.widgetBorder(), 0xB0));
+        return labels;
+    }
 
-        float ox = tx;
-        float selX = tx;
-        for (int i = 0; i < selected; i++) {
-            selX += widths[i];
+    /** Index of the largest step not above {@code value}. */
+    private static int stepIndex(int[] steps, int value) {
+        int index = 0;
+        for (int i = 0; i < steps.length; i++) {
+            if (steps[i] <= value) {
+                index = i;
+            }
         }
-        float sx = anim.approach("segment.x." + key, selX, 18F);
-        float sw = anim.approach("segment.w." + key, widths[selected], 18F);
-        Shapes.pill(g, sx, ty, sw, th, c.accent());
-
-        for (int i = 0; i < options.length; i++) {
-            boolean hover = inside((int) ox, (int) ty, widths[i], (int) th);
-            int color = i == selected ? 0xFFFFFFFF
-                    : UITheme.lerpColor(c.textSecondary(), c.textPrimary(), anim.hover("segment." + key + "." + i, hover));
-            g.drawString(this.font, options[i], (int) ox + pad, (int) ty + 2, color, false);
-            final int index = i;
-            hits.add(new Hit((int) ox, y, widths[i], h, () -> {
-                select.accept(index);
-                KryptonClientConfig.save();
-            }));
-            ox += widths[i];
-        }
-        return y + h;
+        return index;
     }
 
     // ------------------------------------------------------------------
@@ -941,23 +880,12 @@ public final class KryptonStatsScreen extends Screen {
     // ------------------------------------------------------------------
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (super.mouseClicked(mouseX, mouseY, button)) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (settingsOpen && mouseX >= cx && mouseX < cx + cw && mouseY >= cy && mouseY < cy + ch) {
+            int max = Math.max(0, settingsContentH - ch);
+            settingsScroll = clamp(settingsScroll - (int) Math.signum(delta) * 14, 0, max);
             return true;
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            for (Hit hit : List.copyOf(hits)) {
-                if (hit.contains(mouseX, mouseY)) {
-                    hit.action().run();
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
         if (!settingsOpen && tab == Tab.MODS
                 && mouseX >= modListX && mouseX < modListX + modListW
                 && mouseY >= modListY && mouseY < modListY + modListH) {
@@ -993,15 +921,6 @@ public final class KryptonStatsScreen extends Screen {
     //  Drawing helpers
     // ------------------------------------------------------------------
 
-    private int cardBackground() {
-        return UITheme.withAlpha(UITheme.colors().widgetBg(), 0xB0);
-    }
-
-    /** Border width that stays about one screen pixel at GUI scale 2 and never vanishes. */
-    private static float stroke() {
-        return Math.max(Shapes.pixel(), 0.5F);
-    }
-
     private void sectionBox(KryptonGuiGraphics g, int x, int y, int w, int h, String titleKey) {
         Shapes.roundRect(g, x, y, w, h, CARD_RADIUS, cardBackground());
         g.drawString(this.font, translate(titleKey), x + 6, y + 5, UITheme.colors().textSecondary(), false);
@@ -1023,99 +942,10 @@ public final class KryptonStatsScreen extends Screen {
         }
     }
 
-    /** Draws a tinted pill and returns the x just after it; skipped if it would pass {@code limit}. */
-    private int pill(KryptonGuiGraphics g, int x, int textY, int limit, String text, int color, List<Component> tip) {
-        int w = this.font.width(text) + 8;
-        if (x + w > limit) {
-            return x;
-        }
-        Shapes.pill(g, x, textY - 2, w, 12, UITheme.withAlpha(color, 0x30));
-        g.drawString(this.font, text, x + 4, textY, color, false);
-        if (inside(x, textY - 2, w, 12)) {
-            tooltip = tip;
-        }
-        return x + w + 4;
-    }
-
-    private void iconButton(KryptonGuiGraphics g, int x, int y, int size, String glyph, boolean active,
-                            List<Component> tip, Runnable action) {
-        var c = UITheme.colors();
-        boolean hover = inside(x, y, size, size);
-        float hoverAnim = anim.hover("icon." + glyph, hover);
-        float activeAnim = anim.approach("icon.active." + glyph, active ? 1F : 0F, 14F);
-        // Close tints red on hover; the others use the accent.
-        int tint = "✕".equals(glyph) ? c.dangerColor() : c.accent();
-        int alpha = (int) Math.max(0x50 * hoverAnim, 0x34 * activeAnim);
-        if (alpha > 0) {
-            Shapes.circle(g, x + size / 2F, y + size / 2F, size / 2F, UITheme.withAlpha(tint, alpha));
-        }
-        int gw = this.font.width(glyph);
-        int glyphColor = UITheme.lerpColor(c.textSecondary(), c.textPrimary(), Math.max(hoverAnim, activeAnim));
-        g.drawString(this.font, glyph, x + (size - gw + 1) / 2, y + (size - 8) / 2, glyphColor, false);
-        hits.add(new Hit(x, y, size, size, action));
-        if (hover) {
-            tooltip = tip;
-        }
-    }
-
-    private void drawCentered(KryptonGuiGraphics g, String text, int centerX, int y, int color) {
-        g.drawString(this.font, text, centerX - this.font.width(text) / 2, y, color, false);
-    }
-
-    private void renderTooltip(KryptonGuiGraphics g, List<Component> lines, int x, int y) {
-        int wrapW = 200;
-        List<FormattedCharSequence> wrapped = new ArrayList<>();
-        int titleLines = 0;
-        for (int i = 0; i < lines.size(); i++) {
-            List<FormattedCharSequence> split = this.font.split(lines.get(i), wrapW);
-            wrapped.addAll(split);
-            if (i == 0) {
-                titleLines = split.size();
-            }
-        }
-        int maxW = 0;
-        for (FormattedCharSequence line : wrapped) {
-            maxW = Math.max(maxW, this.font.width(line));
-        }
-        int pad = 5;
-        int w = maxW + pad * 2;
-        int h = wrapped.size() * 10 + pad * 2 - 1;
-        int tx = Math.max(2, Math.min(x, this.width - w - 4));
-        int ty = Math.max(2, Math.min(y, this.height - h - 4));
-        var c = UITheme.colors();
-        g.pose().pushPose();
-        g.pose().translate(0, 0, 400);
-        Shapes.roundRect(g, tx, ty, w, h, 5, UITheme.withAlpha(c.headerBg(), 0xF2));
-        Shapes.roundRectStroke(g, tx, ty, w, h, 5, stroke(), UITheme.withAlpha(c.widgetBorderHover(), 0xA0));
-        for (int i = 0; i < wrapped.size(); i++) {
-            int color = i < titleLines ? c.accentLight() : c.textSecondary();
-            g.drawString(this.font, wrapped.get(i), tx + pad, ty + pad + i * 10, color);
-        }
-        g.pose().popPose();
-    }
-
-    private boolean inside(int x, int y, int w, int h) {
-        return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
-    }
-
     private static int qualityColor(double value, double good, double warn) {
         var c = UITheme.colors();
         if (value >= good) return c.successColor();
         if (value >= warn) return c.warningColor();
         return c.dangerColor();
-    }
-
-    private static int clamp(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    /** Static labels are looked up once; init() clears the cache (it runs again on language change). */
-    private String translate(String key) {
-        String cached = translations.get(key);
-        if (cached == null) {
-            cached = Component.translatable(key).getString();
-            translations.put(key, cached);
-        }
-        return cached;
     }
 }

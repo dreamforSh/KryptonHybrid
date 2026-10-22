@@ -113,27 +113,30 @@ Eviction occurs on three dimensions: **distance**, **capacity**, and **timeout**
 
 ---
 
-### 5. Flush Consolidation + Entity Packet Bundling
+### 5. Flush Consolidation + Tick Packet Batching
 
-Two complementary layers reduce syscall and framing overhead during the entity tracking tick:
+Each server tick's block and entity updates are written to every player's connection and flushed once, instead of one flush per packet:
 
 ```
-ChunkMap.tick() HEAD
-  ① Recovery: flush any stale batch from previous failed tick
-  ② Disable auto-flush for all players
-  ③ Open EntityBundleCollector batch window
+ServerChunkCache.tickChunks() "broadcast" phase
+  ① Recovery: deliver anything a failed previous tick left behind
+  ② Hold flushes for all players (outermost window)
+  ③ Collect block / light / block-entity updates per player
 
-  ↳ TrackedEntity.broadcast() → packets collected per player
+  ChunkMap.tick() (entity tracking, nested in the window above)
+    ④ Write the collected block updates first (vanilla order)
+    ⑤ Collect entity updates per player, coalesce them, write them
 
-ChunkMap.tick() RETURN
-  ④ Close batch → emit ClientboundBundlePackets (buffered, not yet flushed)
-  ⑤ Re-enable auto-flush → single kernel flush per player
+tickChunks() RETURN
+  ⑥ Release the hold → one flush per player (or after micro_batch_flush.delay_ms)
 ```
 
 | Layer | Mechanism | Benefit |
 |---|---|---|
-| Flush consolidation (Netty) | Buffer writes, one `flush()` at end of tick | Fewer syscalls on busy servers |
-| Bundle coalescing (protocol) | N entity packets → 1 `ClientboundBundlePacket` | Reduced framing overhead; better compression ratio; client-side atomicity |
+| Flush consolidation (Netty) | Buffer writes, one `flush()` per player per tick | Fewer syscalls on busy servers |
+| Packet coalescing | Drop superseded motion / teleport / entity-data / head-rotation packets in the same tick | Fewer packets and bytes |
+
+Minecraft 1.19.2 has no bundle packet (`ClientboundBundlePacket` arrived in 1.19.4), so packets are still framed individually. The dashboard reports **flush savings** (share of flushes avoided, `1 − flushes / packets held`) and **packets per flush**.
 
 ---
 

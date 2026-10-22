@@ -26,6 +26,14 @@ public final class AutoFlushUtil {
         }
     }
 
+    /** Whether the player's connection currently flushes every write (true for fake players). */
+    public static boolean isAutoFlushing(ServerPlayer player) {
+        if (player.getClass() == ServerPlayer.class) {
+            return ((ConfigurableAutoFlush) player.connection.connection).isAutoFlushing();
+        }
+        return true;
+    }
+
     /**
      * Sets whether the given {@link Connection} should auto-flush.
      *

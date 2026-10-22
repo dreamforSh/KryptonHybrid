@@ -8,7 +8,6 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
-import com.xinian.KryptonHybrid.shared.network.broadcast.BundleEncodeContext;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlContext;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;

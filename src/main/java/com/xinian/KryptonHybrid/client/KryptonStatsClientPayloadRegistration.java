@@ -1,5 +1,6 @@
 package com.xinian.KryptonHybrid.client;
 
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 
 /**
@@ -21,5 +22,9 @@ public final class KryptonStatsClientPayloadRegistration {
 
     public static void handleOpenDashboard() {
         KryptonStatsClientController.openOrRequestLatest();
+    }
+
+    public static void handleServerConfig(ServerConfigSnapshotPayload payload) {
+        RemoteServerConfig.accept(payload);
     }
 }

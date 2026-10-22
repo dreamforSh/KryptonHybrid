@@ -95,8 +95,6 @@ public final class KryptonForgeConfig {
     private final ForgeConfigSpec.IntValue                        dccDistance;
     private final ForgeConfigSpec.IntValue                        dccTimeoutSeconds;
     private final ForgeConfigSpec.BooleanValue                    broadcastCacheEnabled;
-    private final ForgeConfigSpec.BooleanValue                    bundleAlwaysCompress;
-    private final ForgeConfigSpec.IntValue                        bundleCompressMinBytes;
     private final ForgeConfigSpec.BooleanValue                    broadcastCompressedCacheEnabled;
     private final ForgeConfigSpec.BooleanValue                    microBatchFlushEnabled;
     private final ForgeConfigSpec.IntValue                        microBatchFlushDelayMs;
@@ -581,30 +579,6 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
-                "Bundle Forced Compression",
-                "Lowers the compression threshold for sub-packets inside vanilla bundle",
-                "frames. The encoder still falls back to raw output when compression",
-                "would increase wire size."
-        ).push("bundle_compression");
-
-        bundleAlwaysCompress = builder
-                .comment(
-                        "Force compression for bundle sub-packets above min_bytes.",
-                        "Best when Zstd dictionary compression is enabled.",
-                        "Default: true"
-                )
-                .define("always_compress", true);
-
-        bundleCompressMinBytes = builder
-                .comment(
-                        "Minimum uncompressed bundle sub-packet size before forced compression.",
-                        "Range: 1 - 4096  |  Default: 24"
-                )
-                .defineInRange("min_bytes", 24, 1, 4096);
-
-        builder.pop();
-
-        builder.comment(
                 "Broadcast Compressed Cache",
                 "Caches post-compression wire bytes for large broadcast packets such as",
                 "chunk and light updates. This mainly saves CPU, and also keeps repeated",
@@ -663,13 +637,13 @@ public final class KryptonForgeConfig {
         builder.comment(
                 "Packet Coalescing",
                 "Deduplicates redundant entity update packets within each tick's",
-                "bundle before sending.  Removes superseded velocity, teleport,",
-                "and entity data packets for the same entity."
+                "per-player batch before sending.  Removes superseded velocity,",
+                "teleport, head rotation and entity data packets for the same entity."
         ).push("packet_coalescing");
 
         packetCoalescingEnabled = builder
                 .comment(
-                        "Enable packet coalescing within entity tracking bundles.",
+                        "Enable packet coalescing within each tick's per-player batch.",
                         "Default: true"
                 )
                 .define("enabled", true);
@@ -796,8 +770,6 @@ public final class KryptonForgeConfig {
         KryptonConfig.dccDistance          = dccDistance.get();
         KryptonConfig.dccTimeoutSeconds    = dccTimeoutSeconds.get();
         KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
-        KryptonConfig.bundleAlwaysCompress     = bundleAlwaysCompress.get();
-        KryptonConfig.bundleCompressMinBytes   = bundleCompressMinBytes.get();
         KryptonConfig.broadcastCompressedCacheEnabled = broadcastCompressedCacheEnabled.get();
         KryptonConfig.microBatchFlushEnabled   = microBatchFlushEnabled.get();
         KryptonConfig.microBatchFlushDelayMs   = microBatchFlushDelayMs.get();
