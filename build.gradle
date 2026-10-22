@@ -28,6 +28,9 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+            // The jar registers the mixins through its manifest (MixinConfigs); dev runs
+            // load the classes directory, so they need the config passed explicitly.
+            args "-mixin.config=${mod_id}.mixins.json"
 
             mods {
                 "${mod_id}" {

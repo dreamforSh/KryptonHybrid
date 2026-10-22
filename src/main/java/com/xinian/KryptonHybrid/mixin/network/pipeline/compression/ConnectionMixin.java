@@ -6,6 +6,7 @@ import io.netty.channel.Channel;
 import com.xinian.KryptonHybrid.mixin.network.pipeline.ConnectionAccessor;
 import com.xinian.KryptonHybrid.shared.misc.KryptonPipelineEvent;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiation;
 import com.xinian.KryptonHybrid.shared.network.compression.MinecraftCompressDecoder;
 import com.xinian.KryptonHybrid.shared.network.compression.MinecraftCompressEncoder;
@@ -15,6 +16,7 @@ import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import net.minecraft.network.CompressionDecoder;
 import net.minecraft.network.CompressionEncoder;
 import net.minecraft.network.Connection;
+import net.minecraft.network.chat.Component;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -70,9 +72,30 @@ public class ConnectionMixin {
                 this.kryptonfnp$channel().pipeline().fireUserEventTriggered(KryptonPipelineEvent.COMPRESSION_THRESHOLD_UPDATED);
 
             } else {
-                if (CompressionNegotiation.shouldUseZstd((Connection) (Object) this)) {
-                    // One dictionary for both directions (null without one).
-                    byte[] dictionary = ZstdUtil.compressionDictionary();
+                boolean zstd = CompressionNegotiation.shouldUseZstd((Connection) (Object) this);
+                KryptonSharedBootstrap.LOGGER.debug("Compression for {}: {} ({})",
+                        this.kryptonfnp$channel().remoteAddress(), zstd ? "zstd" : "zlib",
+                        CompressionNegotiation.describe((Connection) (Object) this));
+                if (zstd) {
+                    // One dictionary for both directions: the one named in the token the peer
+                    // agreed to (none for id 0). If the config changed during this login so it
+                    // is no longer loaded, end the connection rather than send unreadable frames.
+                    long agreedDictionary = CompressionNegotiation.advertisedDictionaryId();
+                    byte[] dictionary = null;
+                    if (agreedDictionary != 0L) {
+                        try {
+                            dictionary = ZstdUtil.compressionDictionary();
+                        } catch (IllegalStateException unavailable) {
+                            dictionary = null;
+                        }
+                    }
+                    if (agreedDictionary != 0L
+                            && (dictionary == null || ZstdUtil.getCurrentDictionaryId() != agreedDictionary)) {
+                        ((Connection) (Object) this).disconnect(Component.literal(
+                                "Zstd dictionary changed while logging in; please reconnect."));
+                        ci.cancel();
+                        return;
+                    }
                     ZstdCompressEncoder zstdEncoder =
                             new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor(), dictionary);
                     ZstdCompressDecoder zstdDecoder =

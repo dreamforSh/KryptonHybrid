@@ -91,7 +91,7 @@ public final class ZstdUtil {
             return 0L;
         }
         if (!dictionaryLoadAttempted) {
-            reloadDictionary();
+            loadDictionary();
         }
         if (dictionaryBytes != null) {
             return dictionaryId;
@@ -133,7 +133,17 @@ public final class ZstdUtil {
         return sb.toString();
     }
 
-    public static synchronized void reloadDictionary() {
+    /**
+     * (Re)loads the configured dictionary and advertises the resulting compression token
+     * to peers that log in from now on. Call after every config change.
+     */
+    public static void reloadDictionary() {
+        loadDictionary();
+        // Outside this class's lock: the negotiation reads the dictionary state back.
+        CompressionNegotiation.refreshToken();
+    }
+
+    private static synchronized void loadDictionary() {
         dictionaryLoadAttempted = true;
         dictionaryBytes = null;
         dictionaryId = 0L;
@@ -245,7 +255,7 @@ public final class ZstdUtil {
             return null;
         }
         if (!dictionaryLoadAttempted) {
-            reloadDictionary();
+            loadDictionary();
         }
 
         byte[] dict = dictionaryBytes;

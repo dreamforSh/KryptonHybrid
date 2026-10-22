@@ -250,6 +250,7 @@
   "config.krypton_hybrid.zstd_advanced.dict_enabled": "Use dictionary",
   "config.krypton_hybrid.zstd_advanced.dict_path": "Dictionary file",
   "config.krypton_hybrid.zstd_advanced.dict_required": "Dictionary required",
+  "config.krypton_hybrid.zstd_advanced.dict_max_packet_bytes": "Max packet for dictionary (bytes)",
   "config.krypton_hybrid.zstd_advanced.dict_training_capture_enabled": "Capture training samples",
   "config.krypton_hybrid.zstd_advanced.dict_training_samples_dir": "Samples directory",
   "config.krypton_hybrid.zstd_advanced.dict_training_max_samples": "Max samples",

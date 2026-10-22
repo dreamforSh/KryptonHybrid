@@ -1,12 +1,17 @@
 package com.xinian.KryptonHybrid.shared.network.compression;
 
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
 import com.xinian.KryptonHybrid.shared.ProxyMode;
 import net.minecraft.network.Connection;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.ConnectionData;
 import net.minecraftforge.network.NetworkHooks;
+import net.minecraftforge.network.NetworkInstance;
 import net.minecraftforge.network.NetworkRegistry;
+import net.minecraftforge.network.event.EventNetworkChannel;
+
+import java.lang.reflect.Field;
 
 /**
  * Negotiates the packet compression algorithm with the remote peer.
@@ -19,9 +24,18 @@ import net.minecraftforge.network.NetworkRegistry;
  * connection's {@link ConnectionData}, which is in place on both sides before the
  * server sends {@code ClientboundLoginCompressionPacket}.</p>
  *
- * <p>Both sides then apply the same rule: use Zstd only when the local token is a Zstd
- * token and equals the peer's token (same dictionary id). A vanilla, Paper or proxy
- * peer never advertises the channel, so it always gets vanilla zlib.</p>
+ * <p>Both sides then apply the same rule to what was actually exchanged: use Zstd only
+ * when the token this side advertised is a Zstd token and equals the peer's (same
+ * dictionary id). A vanilla, Paper or proxy peer never advertises the channel, so it
+ * always gets vanilla zlib.</p>
+ *
+ * <h3>Keeping the token current</h3>
+ * <p>Forge reads a channel's version string once, when the channel is created during
+ * mod construction, before any config is loaded. {@link #refreshToken()} therefore
+ * writes the token of the current config into the channel (by reflection on Forge's
+ * {@code NetworkInstance}) whenever the config or the dictionary (re)loads, and
+ * decisions use that advertised token, never one recomputed later, so both sides always
+ * judge the same pair of strings.</p>
  *
  * <p>With a dictionary the token also names the frame layout ({@link #DICT_FRAMES}):
  * dictionary frames are magicless and large packets use standard frames without the
@@ -39,16 +53,62 @@ public final class CompressionNegotiation {
     /** Frame layout of dictionary connections; see {@code ZstdUtil#FRAME_MAGIC}. */
     private static final String DICT_FRAMES = ";frames=split";
 
+    /** The token peers are being sent. */
+    private static volatile String advertised = ZLIB_TOKEN;
+    /** The channel's {@link NetworkInstance}, or {@code null} if its version cannot be updated. */
+    private static volatile NetworkInstance channel;
+    private static Field versionField;
+
     private CompressionNegotiation() {}
 
     public static void register() {
-        NetworkRegistry.newEventChannel(CHANNEL, CompressionNegotiation::localToken, peer -> true, peer -> true);
+        EventNetworkChannel created = NetworkRegistry.newEventChannel(
+                CHANNEL, CompressionNegotiation::computeAndAdvertise, peer -> true, peer -> true);
+        try {
+            Field instanceField = EventNetworkChannel.class.getDeclaredField("instance");
+            instanceField.setAccessible(true);
+            Field version = NetworkInstance.class.getDeclaredField("networkProtocolVersion");
+            version.setAccessible(true);
+            versionField = version;
+            channel = (NetworkInstance) instanceField.get(created);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // Peers keep seeing the token from mod construction (default config); both sides
+            // still decide on the exchanged tokens, so they never disagree.
+            KryptonSharedBootstrap.LOGGER.warn(
+                    "Cannot update the compression negotiation token; compression config changes"
+                            + " will not be negotiated: {}", e.toString());
+        }
+    }
+
+    private static String computeAndAdvertise() {
+        String token = localToken();
+        advertised = token;
+        return token;
     }
 
     /**
-     * The token advertised to the peer. Behind a proxy the backend link must stay on
-     * zlib, because the proxy decodes it and may forward login handshakes from a client
-     * that would otherwise agree to Zstd.
+     * Advertises the token of the current configuration and dictionary to peers that log
+     * in from now on. Called after every config or dictionary (re)load.
+     */
+    public static synchronized void refreshToken() {
+        NetworkInstance instance = channel;
+        if (instance == null) {
+            return;
+        }
+        String token = localToken();
+        try {
+            versionField.set(instance, token);
+            advertised = token;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            channel = null;
+            KryptonSharedBootstrap.LOGGER.warn("Cannot update the compression negotiation token: {}", e.toString());
+        }
+    }
+
+    /**
+     * The token for the current configuration. Behind a proxy the backend link must stay
+     * on zlib, because the proxy decodes it and may forward login handshakes from a
+     * client that would otherwise agree to Zstd.
      */
     static String localToken() {
         if (KryptonConfig.proxyMode != ProxyMode.NONE) {
@@ -62,11 +122,11 @@ public final class CompressionNegotiation {
     }
 
     /**
-     * Returns {@code true} when both this side and the peer on {@code connection}
-     * advertised the same Zstd token during the login handshake.
+     * Returns {@code true} when this side and the peer on {@code connection} advertised
+     * the same Zstd token during the login handshake.
      */
     public static boolean shouldUseZstd(Connection connection) {
-        String local = localToken();
+        String local = advertised;
         if (!local.startsWith(ZSTD_TOKEN_PREFIX)) {
             return false;
         }
@@ -75,5 +135,23 @@ public final class CompressionNegotiation {
             return false;
         }
         return local.equals(data.getChannels().get(CHANNEL));
+    }
+
+    /** "local=..., peer=..." for logs. */
+    public static String describe(Connection connection) {
+        ConnectionData data = NetworkHooks.getConnectionData(connection);
+        String peer = data == null ? "no connection data" : String.valueOf(data.getChannels().get(CHANNEL));
+        return "local=" + advertised + ", peer=" + peer;
+    }
+
+    /** Dictionary id in the advertised Zstd token ({@code 0} for none). */
+    public static long advertisedDictionaryId() {
+        String token = advertised;
+        if (!token.startsWith(ZSTD_TOKEN_PREFIX)) {
+            return 0L;
+        }
+        String rest = token.substring(ZSTD_TOKEN_PREFIX.length());
+        int end = rest.indexOf(';');
+        return Long.parseLong(end < 0 ? rest : rest.substring(0, end));
     }
 }
