@@ -5,9 +5,8 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -32,15 +31,13 @@ import java.util.List;
  * When no window is active, the original method runs unchanged.</p>
  */
 @Mixin(ChunkHolder.class)
-public class ChunkHolderBroadcastMixin {
+public abstract class ChunkHolderBroadcastMixin {
 
-    @Shadow
-    @Final
-    private ChunkHolder.PlayerProvider playerProvider;
+    @Accessor("playerProvider")
+    abstract ChunkHolder.PlayerProvider krypton$getPlayerProvider();
 
-    @Shadow
-    @Final
-    private ChunkPos pos;
+    @Accessor("pos")
+    abstract ChunkPos krypton$getPos();
 
     /**
      * Intercepts {@code broadcast(Packet, boolean)} to collect packets into the
@@ -52,7 +49,7 @@ public class ChunkHolderBroadcastMixin {
             return;
         }
 
-        List<ServerPlayer> players = this.playerProvider.getPlayers(this.pos, boundaryOnly);
+        List<ServerPlayer> players = this.krypton$getPlayerProvider().getPlayers(this.krypton$getPos(), boundaryOnly);
 
         // Collect for each player instead of sending immediately
         for (ServerPlayer player : players) {

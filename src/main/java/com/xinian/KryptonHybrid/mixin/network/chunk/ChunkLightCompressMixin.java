@@ -25,10 +25,11 @@ import java.util.List;
  * present, costing {@code 20 ??2048 = 40 960} bytes of redundant light payload per chunk
  * before connection-level compression.</p>
  *
- * <h3>Differences from 1.19.2</h3>
- * <p>The {@code trustEdges} boolean field was removed from
- * {@link ClientboundLightUpdatePacketData} in 1.19.2. This class therefore omits it
- * entirely. The wire format is otherwise identical to the 1.19.2 variant.</p>
+ * <h3>trustEdges</h3>
+ * <p>1.19.2 still serializes the {@code trustEdges} boolean as the first field of
+ * {@link ClientboundLightUpdatePacketData} (it was only removed in 1.20). The Krypton
+ * format carries it right after the marker so the read side can rebuild a vanilla
+ * buffer the 1.19.2 constructor parses correctly.</p>
  *
  * <h3>Solution ??Uniform-RLE light encoding</h3>
  * <p>When {@link KryptonConfig#lightOptEnabled} is {@code true} and net savings are
@@ -36,7 +37,8 @@ import java.util.List;
  * identified by a leading {@code 0x4B} ('K') marker byte:</p>
  * <pre>
  *   [0x4B]           ??Krypton marker (1 byte)
- *   [skyYMask]       ??BitSet (FriendlyByteBuf.writeBitSet)
+ *   [trustEdges]       boolean (1 byte)
+ *   [skyYMask]     ??BitSet (FriendlyByteBuf.writeBitSet)
  *   [blockYMask]     ??BitSet
  *   [emptySkyYMask]    BitSet
  *   [emptyBlockYMask]  BitSet
@@ -74,6 +76,7 @@ public abstract class ChunkLightCompressMixin {
     @Unique private static final byte ENC_UNIFORM = 0x01;
 
 
+    @Accessor("trustEdges") abstract boolean krypton$trustEdges();
     @Accessor("skyYMask") abstract BitSet krypton$skyYMask();
     @Accessor("blockYMask") abstract BitSet krypton$blockYMask();
     @Accessor("emptySkyYMask") abstract BitSet krypton$emptySkyYMask();
@@ -105,6 +108,7 @@ public abstract class ChunkLightCompressMixin {
         if (2048L * uniformCount + rawCount <= 1L) return;
 
         buf.writeByte(KRYPTON_MARKER);
+        buf.writeBoolean(this.krypton$trustEdges());
         buf.writeBitSet(this.krypton$skyYMask());
         buf.writeBitSet(this.krypton$blockYMask());
         buf.writeBitSet(this.krypton$emptySkyYMask());

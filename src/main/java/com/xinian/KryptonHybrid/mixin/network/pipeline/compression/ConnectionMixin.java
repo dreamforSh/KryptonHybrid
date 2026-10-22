@@ -6,6 +6,7 @@ import io.netty.channel.Channel;
 import com.xinian.KryptonHybrid.mixin.network.pipeline.ConnectionAccessor;
 import com.xinian.KryptonHybrid.shared.misc.KryptonPipelineEvent;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiation;
 import com.xinian.KryptonHybrid.shared.network.compression.MinecraftCompressDecoder;
 import com.xinian.KryptonHybrid.shared.network.compression.MinecraftCompressEncoder;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdCompressDecoder;
@@ -69,7 +70,7 @@ public class ConnectionMixin {
                 this.kryptonfnp$channel().pipeline().fireUserEventTriggered(KryptonPipelineEvent.COMPRESSION_THRESHOLD_UPDATED);
 
             } else {
-                if (ZstdUtil.isEnabled()) {
+                if (CompressionNegotiation.shouldUseZstd((Connection) (Object) this)) {
                     ZstdCompressEncoder zstdEncoder =
                             new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor());
                     ZstdCompressDecoder zstdDecoder =

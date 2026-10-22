@@ -28,8 +28,9 @@ import java.util.List;
  * the decompressed data into a vanilla-format buffer before passing it to the original
  * vanilla constructor.</p>
  *
- * <p>1.19.2 specific: the {@code trustEdges} field is not part of
- * {@link ClientboundLightUpdatePacketData}; this class therefore omits it entirely.</p>
+ * <p>1.19.2 specific: {@link ClientboundLightUpdatePacketData} still starts with the
+ * {@code trustEdges} boolean, so it is read after the marker and written back first
+ * into the rebuilt vanilla buffer.</p>
  */
 @Mixin(ClientboundLightUpdatePacket.class)
 public abstract class ClientboundLightUpdatePacketMixin {
@@ -51,7 +52,7 @@ public abstract class ClientboundLightUpdatePacketMixin {
         }
         buf.readByte();
 
-
+        boolean trustEdges  = buf.readBoolean();
         BitSet skyYMask     = buf.readBitSet();
         BitSet blockYMask   = buf.readBitSet();
         BitSet emptySky     = buf.readBitSet();
@@ -61,6 +62,7 @@ public abstract class ClientboundLightUpdatePacketMixin {
 
         FriendlyByteBuf vanillaBuf = new FriendlyByteBuf(Unpooled.buffer());
         try {
+            vanillaBuf.writeBoolean(trustEdges);
             vanillaBuf.writeBitSet(skyYMask);
             vanillaBuf.writeBitSet(blockYMask);
             vanillaBuf.writeBitSet(emptySky);

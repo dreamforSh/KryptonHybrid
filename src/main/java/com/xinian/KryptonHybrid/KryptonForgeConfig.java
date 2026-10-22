@@ -121,6 +121,8 @@ public final class KryptonForgeConfig {
                         "Compression algorithm to use for network packets.",
                         "  ZLIB  - vanilla zlib (DEFLATE). Always available. Minecraft default.",
                         "  ZSTD  - Zstandard compression (zstd-jni, native). Best ratio; moderate CPU.",
+                        "          Used only when the peer also runs Krypton Hybrid with ZSTD and the",
+                        "          same dictionary, and proxy.mode is NONE; otherwise falls back to ZLIB.",
                         "Default: ZSTD"
                 )
                 .defineEnum("algorithm", CompressionAlgorithm.ZSTD);

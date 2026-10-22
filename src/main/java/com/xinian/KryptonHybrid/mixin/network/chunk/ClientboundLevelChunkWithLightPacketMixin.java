@@ -129,7 +129,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         }
         buf.readByte();
 
-
+        boolean trustEdges   = buf.readBoolean();
         BitSet skyYMask      = buf.readBitSet();
         BitSet blockYMask    = buf.readBitSet();
         BitSet emptySky      = buf.readBitSet();
@@ -140,6 +140,7 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
 
         FriendlyByteBuf vanillaBuf = new FriendlyByteBuf(Unpooled.buffer());
         try {
+            vanillaBuf.writeBoolean(trustEdges);
             vanillaBuf.writeBitSet(skyYMask);
             vanillaBuf.writeBitSet(blockYMask);
             vanillaBuf.writeBitSet(emptySky);

@@ -64,10 +64,33 @@ public final class ZstdUtil {
     private ZstdUtil() {}
 
     /**
-     * Returns {@code true} when Zstd should be used for the current connection.
+     * Returns {@code true} when this side is willing to use Zstd. Whether a given
+     * connection actually uses it is decided by {@link CompressionNegotiation}.
      */
     public static boolean isEnabled() {
         return AVAILABLE && KryptonConfig.compressionAlgorithm == CompressionAlgorithm.ZSTD;
+    }
+
+    /**
+     * Returns the dictionary id both peers must agree on before Zstd can be negotiated:
+     * the loaded dictionary's id, {@code 0} for plain Zstd, or {@code -1} when this side
+     * cannot use Zstd at all (disabled, native library missing, or a required dictionary
+     * failed to load).
+     */
+    public static synchronized long negotiableDictionaryId() {
+        if (!isEnabled()) {
+            return -1L;
+        }
+        if (!KryptonConfig.zstdDictEnabled) {
+            return 0L;
+        }
+        if (!dictionaryLoadAttempted) {
+            reloadDictionary();
+        }
+        if (dictionaryBytes != null) {
+            return dictionaryId;
+        }
+        return KryptonConfig.zstdDictRequired ? -1L : 0L;
     }
 
     /**

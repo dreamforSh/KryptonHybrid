@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid;
 import com.xinian.KryptonHybrid.command.KryptonStatsCommand;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
+import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiation;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
@@ -31,7 +32,10 @@ import java.util.function.Supplier;
 @Mod(KryptonHybrid.MODID)
 public final class KryptonHybrid {
     public static final String MODID = "krypton_hybrid";
-    private static final String NETWORK_VERSION = "1";
+    // Bump whenever a Krypton wire format changes, so peers running an older build are
+    // refused at login instead of misparsing packets. 2: light data carries trustEdges,
+    // compression algorithm is negotiated.
+    private static final String NETWORK_VERSION = "2";
 
     public static final SimpleChannel NETWORK = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID, "main"),
@@ -48,6 +52,7 @@ public final class KryptonHybrid {
         modEventBus.addListener(this::onConfigReload);
         MinecraftForge.EVENT_BUS.addListener(this::onRegisterCommands);
         registerPackets();
+        CompressionNegotiation.register();
 
         if (FMLEnvironment.dist.isClient()) {
             com.xinian.KryptonHybrid.client.KryptonStatsClientController.init(modEventBus);

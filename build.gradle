@@ -144,6 +144,18 @@ tasks.named('jar', Jar).configure {
     finalizedBy 'reobfJar'
 }
 
+// The Mixin annotation processor emits SRG mappings for @Shadow/@Overwrite members
+// (which live on the mixin class, not the target) to this tsrg. ForgeGradle's reobf
+// must consume it via getExtraMappings(); otherwise those members keep their named
+// (Parchment/Mojmap) names and fail to resolve against the obfuscated target classes
+// at production runtime, e.g. "@Shadow field playerProvider was not located in
+// net.minecraft.server.level.ChunkHolder". Injector targets (@Inject/@Accessor) are
+// handled separately by the refmap and are unaffected.
+tasks.withType(net.minecraftforge.gradle.userdev.tasks.RenameJarInPlace).configureEach {
+    dependsOn tasks.named('compileJava')
+    extraMappings.from(mixinMappingsFile)
+}
+
 publishing {
     publications {
         register('mavenJava', MavenPublication) {

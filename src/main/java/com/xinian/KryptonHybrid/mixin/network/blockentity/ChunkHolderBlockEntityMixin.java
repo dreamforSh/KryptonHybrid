@@ -13,9 +13,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -44,14 +43,12 @@ import java.util.List;
  * rather than replacing the local NBT.</p>
  */
 @Mixin(ChunkHolder.class)
-public class ChunkHolderBlockEntityMixin {
-    @Shadow
-    @Final
-    private ChunkHolder.PlayerProvider playerProvider;
+public abstract class ChunkHolderBlockEntityMixin {
+    @Accessor("playerProvider")
+    abstract ChunkHolder.PlayerProvider krypton$getPlayerProvider();
 
-    @Shadow
-    @Final
-    private ChunkPos pos;
+    @Accessor("pos")
+    abstract ChunkPos krypton$getPos();
 
     /**
      * Intercepts the private {@code broadcastBlockEntity(Level, BlockPos)}
@@ -81,7 +78,7 @@ public class ChunkHolderBlockEntityMixin {
             return;
         }
 
-        List<ServerPlayer> players = this.playerProvider.getPlayers(this.pos, false);
+        List<ServerPlayer> players = this.krypton$getPlayerProvider().getPlayers(this.krypton$getPos(), false);
         CompoundTag fullTag = bePacket.getTag();
         if (fullTag == null || fullTag.isEmpty()) {
             // Empty tag ??send as-is to all players
