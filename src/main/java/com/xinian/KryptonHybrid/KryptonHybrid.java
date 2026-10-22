@@ -7,6 +7,7 @@ import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiatio
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
+import com.xinian.KryptonHybrid.shared.network.payload.OpenDashboardPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotRequestPayload;
 import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
@@ -36,8 +37,9 @@ public final class KryptonHybrid {
     public static final String MODID = "krypton_hybrid";
     // Bump whenever a Krypton wire format changes, so peers running an older build are
     // refused at login instead of misparsing packets. 2: light data carries trustEdges,
-    // compression algorithm is negotiated.
-    private static final String NETWORK_VERSION = "2";
+    // compression algorithm is negotiated. 3: stats snapshot carries status/legacy ping
+    // drops, open-dashboard message.
+    private static final String NETWORK_VERSION = "3";
 
     public static final SimpleChannel NETWORK = NetworkRegistry.newSimpleChannel(
             new ResourceLocation(MODID, "main"),
@@ -111,6 +113,23 @@ public final class KryptonHybrid {
                 .decoder(StatsSnapshotRequestPayload::decode)
                 .consumerMainThread(KryptonHybrid::handleStatsSnapshotRequest)
                 .add();
+        NETWORK.messageBuilder(OpenDashboardPayload.class, 3, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(OpenDashboardPayload::encode)
+                .decoder(OpenDashboardPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleOpenDashboard)
+                .add();
+    }
+
+    private static void handleOpenDashboard(OpenDashboardPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientPayloadRegistration.handleOpenDashboard();
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    public static void openDashboard(ServerPlayer player) {
+        NETWORK.send(PacketDistributor.PLAYER.with(() -> player), OpenDashboardPayload.INSTANCE);
     }
 
     private static void handleStatsSnapshot(StatsSnapshotPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {

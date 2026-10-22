@@ -52,6 +52,8 @@ public record StatsSnapshotPayload(
         long secAnomalyDisconnects,
         long secWritesDropped,
         long secWatermarkBreaches,
+        long secStatusRequestsDropped,
+        long secLegacyQueriesDropped,
         List<ModEntry> topMods
 ) {
     public static final int MAX_TOP_MODS = 64;
@@ -99,6 +101,8 @@ public record StatsSnapshotPayload(
         buf.writeVarLong(p.secAnomalyDisconnects);
         buf.writeVarLong(p.secWritesDropped);
         buf.writeVarLong(p.secWatermarkBreaches);
+        buf.writeVarLong(p.secStatusRequestsDropped);
+        buf.writeVarLong(p.secLegacyQueriesDropped);
         int n = Math.min(p.topMods.size(), MAX_TOP_MODS);
         buf.writeVarInt(n);
         for (int i = 0; i < n; i++) {
@@ -149,6 +153,8 @@ public record StatsSnapshotPayload(
         long secAnomalyDisconnects = buf.readVarLong();
         long secWritesDropped = buf.readVarLong();
         long secWatermarkBreaches = buf.readVarLong();
+        long secStatusRequestsDropped = buf.readVarLong();
+        long secLegacyQueriesDropped = buf.readVarLong();
         int n = Math.min(buf.readVarInt(), MAX_TOP_MODS);
         List<ModEntry> mods = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
@@ -182,6 +188,8 @@ public record StatsSnapshotPayload(
                 secAnomalyDisconnects,
                 secWritesDropped,
                 secWatermarkBreaches,
+                secStatusRequestsDropped,
+                secLegacyQueriesDropped,
                 mods);
     }
 
@@ -233,6 +241,8 @@ public record StatsSnapshotPayload(
                 sec.getAnomalyDisconnects(),
                 sec.getWritesDropped(),
                 sec.getWatermarkBreaches(),
+                sec.getStatusRequestsDropped(),
+                sec.getLegacyQueriesDropped(),
                 buildTopMods(s)
         );
     }
@@ -248,7 +258,9 @@ public record StatsSnapshotPayload(
                 + secAnomalyEvents
                 + secAnomalyDisconnects
                 + secWritesDropped
-                + secWatermarkBreaches;
+                + secWatermarkBreaches
+                + secStatusRequestsDropped
+                + secLegacyQueriesDropped;
     }
 
     private static List<ModEntry> buildTopMods(NetworkTrafficStats s) {

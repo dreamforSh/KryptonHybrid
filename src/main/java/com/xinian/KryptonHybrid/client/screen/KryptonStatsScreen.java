@@ -1,1010 +1,1121 @@
 package com.xinian.KryptonHybrid.client.screen;
 
-import com.xinian.KryptonHybrid.client.KryptonStatsClientController;
-import com.xinian.KryptonHybrid.client.compat.KryptonGuiGraphics;
-import com.xinian.KryptonHybrid.client.ui.MCButton;
-import com.xinian.KryptonHybrid.client.ui.MCPanel;
-import com.xinian.KryptonHybrid.client.ui.UITheme;
-import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
-import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.xinian.KryptonHybrid.client.KryptonClientConfig;
+import com.xinian.KryptonHybrid.client.KryptonStatsClientController;
+import com.xinian.KryptonHybrid.client.KryptonStatsHistory;
+import com.xinian.KryptonHybrid.client.compat.KryptonGuiGraphics;
+import com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay;
+import com.xinian.KryptonHybrid.client.ui.Anim;
+import com.xinian.KryptonHybrid.client.ui.Charts;
+import com.xinian.KryptonHybrid.client.ui.Fmt;
+import com.xinian.KryptonHybrid.client.ui.GeometryCache;
+import com.xinian.KryptonHybrid.client.ui.Shapes;
+import com.xinian.KryptonHybrid.client.ui.UITheme;
+import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
+import net.minecraft.ChatFormatting;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
- * Themed Krypton stats dashboard.
+ * Krypton stats dashboard: a translucent floating panel over the game world.
  *
- * <p>Layout adapts to GUI scale &amp; window width:</p>
- * <ul>
- *   <li>Tabs and chips reflow to fewer columns on narrow viewports.</li>
- *   <li>Line spacing is driven by {@code font.lineHeight} so larger GUI scales
- *       remain readable.</li>
- *   <li>The "Mods" tab streams the per-mod traffic table from
- *       {@link StatsSnapshotPayload#topMods()} with sortable bars and scrolling.</li>
- * </ul>
+ * <p>Everything is drawn from {@link KryptonStatsClientController#latestSnapshot()}
+ * and {@link KryptonStatsHistory} on every frame, so refreshed data shows up
+ * immediately. Clickable regions are registered while drawing and hit-tested on
+ * the next click.</p>
+ *
+ * <p>Tabs: overview (live KPIs, outbound chart, top mods), traffic (packet-rate
+ * chart, outbound/inbound breakdown, batching meters), mods (filterable, sortable
+ * table), security (all guard counters plus client diagnostics). The gear button
+ * swaps the content for the settings view.</p>
  */
 public final class KryptonStatsScreen extends Screen {
 
-    private enum Tab { OVERVIEW, NETWORK, COMPRESSION, MODS, INSIGHTS }
-    private enum ModSort { BYTES, PACKETS, NAME }
+    private enum Tab { OVERVIEW, TRAFFIC, MODS, SECURITY }
+    private enum ModSort { NAME, BYTES, PACKETS, AVG }
 
-    private StatsSnapshotPayload snap;
-    private Tab currentTab = Tab.OVERVIEW;
-    private final List<MCPanel> activePanels = new ArrayList<>();
-    private final List<MCButton> tabButtons = new ArrayList<>();
+    private static final long AUTO_REFRESH_MS = 1000L;
+    private static final int HEADER_H = 20;
+    private static final int TABS_H = 16;
+    private static final int FOOTER_H = 14;
+    private static final int PAD = 10;
+    private static final float CARD_RADIUS = 5F;
+    private static final int[] OPACITY_STEPS = {55, 70, 85, 100};
+    private static final long[] HUD_REFRESH_STEPS = {1000L, 2000L, 5000L};
 
-    // Mods tab state
+    /** Remembered for the session so reopening lands on the same tab. */
+    private static Tab lastTab = Tab.OVERVIEW;
+
+    private Tab tab = lastTab;
+    private boolean settingsOpen;
     private ModSort modSort = ModSort.BYTES;
-    private int modScroll = 0;
-    private int modListInnerX, modListInnerY, modListInnerW, modListInnerH;
-    private int lastMouseX;
-    private int lastMouseY;
-    private List<Component> summaryTooltip;
+    private boolean modSortAscending;
+    private int modScroll;
+    private String modFilterText = "";
+    private EditBox modFilter;
+    private long lastAutoRefreshMs;
 
-    public KryptonStatsScreen(StatsSnapshotPayload snap) {
-        super(Component.translatable("gui.krypton_hybrid.stats.title"));
-        this.snap = snap;
+    private int px, py, pw, ph;
+    private int cx, cy, cw, ch;
+    private int modListX, modListY, modListW, modListH;
+
+    private final List<Hit> hits = new ArrayList<>();
+    private final Anim anim = new Anim();
+    private final Map<String, String> translations = new HashMap<>();
+    private List<Component> tooltip;
+
+    // Sorted/filtered mod lists, rebuilt only when the snapshot (by identity) or the view changes.
+    private StatsSnapshotPayload topModsSnapshot;
+    private List<StatsSnapshotPayload.ModEntry> topModsCache = List.of();
+    private StatsSnapshotPayload modsSnapshot;
+    private String modsFilter;
+    private ModSort modsSort;
+    private boolean modsAscending;
+    private List<StatsSnapshotPayload.ModEntry> modsCache = List.of();
+    private int mouseX, mouseY;
+
+    private record Hit(int x, int y, int w, int h, Runnable action) {
+        boolean contains(double mx, double my) {
+            return mx >= x && mx < x + w && my >= y && my < y + h;
+        }
     }
 
-    public void updateSnapshot(StatsSnapshotPayload snap) { this.snap = snap; }
+    public KryptonStatsScreen() {
+        super(Component.translatable("gui.krypton_hybrid.dash.title"));
+    }
 
     @Override
-    public boolean isPauseScreen() { return false; }
-
-    private int lineH() { return this.font.lineHeight + 2; }
+    public boolean isPauseScreen() {
+        return false;
+    }
 
     @Override
     protected void init() {
-        clearWidgets();
-        tabButtons.clear();
-        activePanels.clear();
+        translations.clear();
+        pw = clamp(this.width - 32, 300, 540);
+        ph = clamp(this.height - 28, 200, 340);
+        px = (this.width - pw) / 2;
+        py = (this.height - ph) / 2;
+        cx = px + PAD;
+        cy = py + HEADER_H + TABS_H + 6;
+        cw = pw - PAD * 2;
+        ch = ph - HEADER_H - TABS_H - 6 - FOOTER_H - 4;
 
-        // ??? Theme toggle (top-right, sized to content) ???
-        Component themeText = themeLabel();
-        int themeW = Math.max(72, this.font.width(themeText) + 16);
-        int topBtnH = 18;
-        int topGap = 6;
-        int settingsW = Math.max(90, this.font.width(Component.translatable("gui.krypton_hybrid.button.settings")) + 16);
+        modFilter = new EditBox(this.font, cx + 4, cy + 3, 110, 10,
+                Component.translatable("gui.krypton_hybrid.dash.mods.filter"));
+        modFilter.setBordered(false);
+        modFilter.setMaxLength(64);
+        modFilter.setValue(modFilterText);
+        modFilter.setTextColor(UITheme.colors().textPrimary());
+        modFilter.setResponder(value -> {
+            modFilterText = value;
+            modScroll = 0;
+        });
+        addRenderableWidget(modFilter);
+    }
 
-        MCButton themeBtn = new MCButton(this.width - themeW - 8, 8, themeW, topBtnH,
-                themeText, b -> {
-                    UITheme.toggleMode();
-                    b.setMessage(themeLabel());
-                });
-        addRenderableWidget(themeBtn);
-
-        addRenderableWidget(new MCButton(this.width - themeW - settingsW - topGap - 8, 8, settingsW, topBtnH,
-                Component.translatable("gui.krypton_hybrid.button.settings"),
-                b -> this.minecraft.setScreen(new KryptonStatsSettingsScreen(this))));
-
-        // ??? Tab strip ??adaptive width based on longest label ???
-        Tab[] tabs = Tab.values();
-        int gap = 6;
-        int sidePad = 12;
-        int labelMax = 0;
-        for (Tab t : tabs) {
-            labelMax = Math.max(labelMax, this.font.width(Component.translatable(tabKey(t))));
+    @Override
+    public void tick() {
+        modFilter.tick();
+        long now = System.currentTimeMillis();
+        if (now - lastAutoRefreshMs >= AUTO_REFRESH_MS) {
+            lastAutoRefreshMs = now;
+            KryptonStatsClientController.requestFreshSnapshot();
         }
-        int idealTabW = Math.max(64, labelMax + 14);
-        int available = this.width - sidePad * 2;
-        int totalIdeal = tabs.length * idealTabW + (tabs.length - 1) * gap;
-        int tabW;
-        if (totalIdeal <= available) {
-            tabW = idealTabW;
+    }
+
+    @Override
+    public void removed() {
+        lastTab = tab;
+        GeometryCache.release("dash.");
+    }
+
+    // ------------------------------------------------------------------
+    //  Render
+    // ------------------------------------------------------------------
+
+    @Override
+    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
+        this.mouseX = mouseX;
+        this.mouseY = mouseY;
+        this.hits.clear();
+        this.tooltip = null;
+        anim.frame();
+
+        KryptonGuiGraphics g = new KryptonGuiGraphics(poseStack);
+        g.beginBatch();
+        var c = UITheme.colors();
+        StatsSnapshotPayload snap = KryptonStatsClientController.latestSnapshot();
+
+        g.fill(0, 0, this.width, this.height, 0x48000000);
+        Shapes.roundRect(g, px, py, pw, ph, 8, UITheme.panelBackground());
+        Shapes.roundRectStroke(g, px, py, pw, ph, 8, stroke(), UITheme.withAlpha(c.widgetBorder(), 0xD0));
+
+        renderHeader(g);
+        renderTabs(g);
+
+        boolean showFilter = !settingsOpen && tab == Tab.MODS && snap != null;
+        modFilter.visible = showFilter;
+        modFilter.setTextColor(c.textPrimary());
+        if (!showFilter && modFilter.isFocused()) {
+            modFilter.setFocus(false);
+        }
+
+        if (!settingsOpen && snap != null && tab == Tab.MODS) {
+            // Clips its own list; GuiComponent scissors do not nest.
+            renderMods(g, snap);
         } else {
-            tabW = Math.max(40, (available - gap * (tabs.length - 1)) / tabs.length);
-        }
-        int totalW = tabs.length * tabW + (tabs.length - 1) * gap;
-        int startX = Math.max(sidePad, (this.width - totalW) / 2);
-        int tabY = 36;
-        int tabH = Math.max(18, this.font.lineHeight + 8);
-        for (int i = 0; i < tabs.length; i++) {
-            final Tab tab = tabs[i];
-            MCButton b = new MCButton(startX + i * (tabW + gap), tabY, tabW, tabH,
-                    Component.translatable(tabKey(tab)), btn -> switchTab(tab));
-            tabButtons.add(b);
-            addRenderableWidget(b);
-        }
-
-        rebuildPanels();
-
-        // ??? Action bar (bottom-centered, sized by translated label width) ???
-        int btnH = Math.max(20, this.font.lineHeight + 10);
-        int btnY = this.height - btnH - 8;
-        Component refreshText = Component.translatable("gui.krypton_hybrid.button.refresh");
-        Component closeText   = Component.translatable("gui.krypton_hybrid.button.close");
-        int refreshW = Math.max(96, this.font.width(refreshText) + 24);
-        int closeW   = Math.max(76, this.font.width(closeText)   + 24);
-        int btnGap = 8;
-        int total = refreshW + closeW + btnGap;
-        int bx = Math.max(10, (this.width - total) / 2);
-        addRenderableWidget(new MCButton(bx, btnY, refreshW, btnH, refreshText,
-                b -> KryptonStatsClientController.requestFreshSnapshot()));
-        addRenderableWidget(new MCButton(bx + refreshW + btnGap, btnY, closeW, btnH, closeText,
-                b -> onClose()));
-    }
-
-    private void switchTab(Tab tab) {
-        this.currentTab = tab;
-        this.modScroll = 0;
-        rebuildPanels();
-    }
-
-    private void rebuildPanels() {
-        activePanels.clear();
-        // Header consumes y?[0..32], tab strip starts at y=36 with height ??font+8.
-        int tabBottom = 36 + Math.max(18, this.font.lineHeight + 8);
-        int contentTop = tabBottom + 10;
-        // Footer reserves the action button row (height ??font+10) + hint line + padding.
-        int footerReserve = Math.max(20, this.font.lineHeight + 10) + lineH() + 14;
-        int contentBottom = this.height - footerReserve;
-        int left = 14;
-        int right = this.width - 14;
-        int width = right - left;
-        int height = Math.max(160, contentBottom - contentTop);
-        boolean singleColumn = this.width < 470;
-        int gap = 10;
-
-        switch (currentTab) {
-            case OVERVIEW -> buildOverview(left, contentTop, width, height, gap, singleColumn);
-            case NETWORK -> buildNetwork(left, contentTop, width, height, gap, singleColumn);
-            case COMPRESSION -> buildCompression(left, contentTop, width, height);
-            case MODS -> buildMods(left, contentTop, width, height);
-            case INSIGHTS -> buildInsights(left, contentTop, width, height);
-        }
-    }
-
-    // ??? Tab builders ???
-
-    private void buildOverview(int left, int top, int width, int height, int gap, boolean singleColumn) {
-        long elapsed = Math.max(1L, snap.elapsedSeconds());
-        long snapshotAgeMs = KryptonStatsClientController.latestSnapshotAgeMs();
-        double bundleHit = snap.bundleHitRatePercent();
-
-        int cols = width < 380 ? 2 : 4;
-        int rows = (4 + cols - 1) / cols;
-        int chipH = this.font.lineHeight * 2 + 8;
-        int chipPanelH = MCPanelHeader() + rows * chipH + (rows - 1) * 6 + 8;
-        MCPanel summary = new MCPanel(left, top, width, chipPanelH)
-                .setTitle(translate("gui.krypton_hybrid.section.summary"));
-        summary.addEntry((g, x, y, w, h) -> drawChipStrip(g, x, y, w, snapshotAgeMs, bundleHit));
-        activePanels.add(summary);
-
-        int remTop = top + chipPanelH + gap;
-        int remH = Math.max(140, height - chipPanelH - gap);
-        int colW = singleColumn ? width : (width - gap) / 2;
-        int colH = singleColumn ? (remH - gap) / 2 : remH;
-
-        MCPanel saving = new MCPanel(left, remTop, colW, colH)
-                .setTitle(translate("gui.krypton_hybrid.section.saving_summary"))
-                .setCollapsible(true);
-        saving.addEntry((g, x, y, w, h) -> {
-            int ly = drawSavingBar(g, x, y, w, snap.savingPercent());
-            ly += 4;
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.saved_bytes",
-                    NetworkTrafficStats.formatBytes(snap.savedBytes()), qualityColor(snap.savingPercent(), 30.0, 10.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.compression_ratio",
-                    String.format("%.4f", snap.compressionRatio()), ratioColor(snap.compressionRatio()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_coverage",
-                    String.format("%.1f%%", snap.trackedCoveragePercent()), qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.algorithm", snap.compressionAlgorithm(), UITheme.colors().accentLight());
-        });
-        activePanels.add(saving);
-
-        int sx = singleColumn ? left : left + colW + gap;
-        int sy = singleColumn ? remTop + colH + gap : remTop;
-        MCPanel throughput = new MCPanel(sx, sy, colW, colH)
-                .setTitle(translate("gui.krypton_hybrid.section.throughput"))
-                .setCollapsible(true);
-        throughput.addEntry((g, x, y, w, h) -> {
-            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", formatDuration(elapsed));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_sent",
-                    String.format("%,d (%.1f/s)", snap.packetsSent(), snap.packetsSentPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_received",
-                    String.format("%,d (%.1f/s)", snap.packetsReceived(), snap.packetsReceivedPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig_rate",
-                    formatBytesRate(snap.bytesSentOriginal(), snap.originalBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire_rate",
-                    formatBytesRate(snap.bytesSentWire(), snap.wireBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received_rate",
-                    formatBytesRate(snap.bytesReceived(), snap.receivedBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
-                    String.format("%.1f%%", snap.bundleHitRatePercent()), qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_drop_rate",
-                    String.format("%.1f%%", snap.coalesceDropRatePercent()), inverseQualityColor(snap.coalesceDropRatePercent(), 5.0, 15.0));
-        });
-        activePanels.add(throughput);
-    }
-
-    private void buildNetwork(int left, int top, int width, int height, int gap, boolean singleColumn) {
-        long elapsed = Math.max(1L, snap.elapsedSeconds());
-        int colW = singleColumn ? width : (width - gap) / 2;
-        int colH = singleColumn ? (height - gap) / 2 : height;
-
-        MCPanel sent = new MCPanel(left, top, colW, colH)
-                .setTitle(translate("gui.krypton_hybrid.section.network_sent"))
-                .setCollapsible(true);
-        sent.addEntry((g, x, y, w, h) -> {
-            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.uptime", formatDuration(elapsed));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.packets_sent",
-                    String.format("%,d", snap.packetsSent()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig_rate",
-                    formatBytesRate(snap.bytesSentOriginal(), snap.originalBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire_rate",
-                    formatBytesRate(snap.bytesSentWire(), snap.wireBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig",
-                    NetworkTrafficStats.formatBytes(snap.bytesSentOriginal()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire",
-                    NetworkTrafficStats.formatBytes(snap.bytesSentWire()), ratioColor(snap.compressionRatio()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.saved_bytes",
-                    NetworkTrafficStats.formatBytes(snap.savedBytes()), qualityColor(snap.savingPercent(), 30.0, 10.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_orig_packet",
-                    String.format("%.1f B", snap.averageOriginalPacketBytes()));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_wire_packet",
-                    String.format("%.1f B", snap.averageWirePacketBytes()));
-        });
-        activePanels.add(sent);
-
-        int sx = singleColumn ? left : left + colW + gap;
-        int sy = singleColumn ? top + colH + gap : top;
-        MCPanel recv = new MCPanel(sx, sy, colW, colH)
-                .setTitle(translate("gui.krypton_hybrid.section.network_recv"))
-                .setCollapsible(true);
-        recv.addEntry((g, x, y, w, h) -> {
-            int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.packets_received",
-                    String.format("%,d", snap.packetsReceived()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received_rate",
-                    formatBytesRate(snap.bytesReceived(), snap.receivedBytesPerSecond()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received",
-                    NetworkTrafficStats.formatBytes(snap.bytesReceived()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_recv_packet",
-                    String.format("%.1f B", snap.averageReceivedPacketBytes()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundles_emitted",
-                    String.format("%,d", snap.bundlesEmitted()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_batches_observed",
-                    String.format("%,d", snap.bundleBatchesObserved()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_packets_total",
-                    String.format("%,d", snap.bundlePacketsTotal()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_avg_size",
-                    String.format("%.2f", snap.averageBundleSize()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
-                    String.format("%.1f%%", snap.bundleHitRatePercent()), qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_dropped",
-                    String.format("%,d", snap.coalesceDroppedPackets()));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_drop_rate",
-                    String.format("%.1f%%", snap.coalesceDropRatePercent()), inverseQualityColor(snap.coalesceDropRatePercent(), 5.0, 15.0));
-        });
-        activePanels.add(recv);
-    }
-
-    private void buildCompression(int left, int top, int width, int height) {
-        MCPanel p = new MCPanel(left, top, width, height)
-                .setTitle(translate("gui.krypton_hybrid.section.compression"))
-                .setCollapsible(true);
-        p.addEntry((g, x, y, w, h) -> {
-            int ly = drawSavingBar(g, x, y, w, snap.savingPercent());
-            ly += 6;
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.algorithm", snap.compressionAlgorithm());
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_orig",
-                    NetworkTrafficStats.formatBytes(snap.bytesSentOriginal()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.sent_wire",
-                    NetworkTrafficStats.formatBytes(snap.bytesSentWire()), ratioColor(snap.compressionRatio()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received",
-                    NetworkTrafficStats.formatBytes(snap.bytesReceived()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.saved_bytes",
-                    NetworkTrafficStats.formatBytes(snap.savedBytes()), qualityColor(snap.savingPercent(), 30.0, 10.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.compression_ratio",
-                    String.format("%.4f", snap.compressionRatio()), ratioColor(snap.compressionRatio()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bandwidth_saving",
-                    String.format("%.2f%%", snap.savingPercent()), qualityColor(snap.savingPercent(), 30.0, 10.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_coverage",
-                    String.format("%.1f%%", snap.trackedCoveragePercent()), qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_orig_packet",
-                    String.format("%.1f B", snap.averageOriginalPacketBytes()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_wire_packet",
-                    String.format("%.1f B", snap.averageWirePacketBytes()));
-            drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_recv_packet",
-                    String.format("%.1f B", snap.averageReceivedPacketBytes()));
-        });
-        activePanels.add(p);
-    }
-
-    private void buildMods(int left, int top, int width, int height) {
-        MCPanel p = new MCPanel(left, top, width, height)
-                .setTitle(translate("gui.krypton_hybrid.section.per_mod"));
-        p.addEntry(this::drawModsContent);
-        activePanels.add(p);
-    }
-
-    private void buildInsights(int left, int top, int width, int height) {
-        boolean stacked = width < 560;
-        int gap = 10;
-
-        if (stacked) {
-            int paneH = Math.max(92, (height - gap * 2) / 3);
-
-            MCPanel hotspots = new MCPanel(left, top, width, paneH)
-                    .setTitle(translate("gui.krypton_hybrid.section.insights"))
-                    .setCollapsible(true);
-            hotspots.addEntry(this::drawHotspotEntries);
-            activePanels.add(hotspots);
-
-            MCPanel security = new MCPanel(left, top + paneH + gap, width, paneH)
-                    .setTitle(translate("gui.krypton_hybrid.section.security"))
-                    .setCollapsible(true);
-            security.addEntry(this::drawSecurityEntries);
-            activePanels.add(security);
-
-            MCPanel client = new MCPanel(left, top + (paneH + gap) * 2, width, paneH)
-                    .setTitle(translate("gui.krypton_hybrid.section.client"))
-                    .setCollapsible(true);
-            client.addEntry(this::drawClientEntries);
-            activePanels.add(client);
-            return;
-        }
-
-        int leftW = (int) (width * 0.58f);
-        int rightW = width - leftW - gap;
-        int rightH = (height - gap) / 2;
-
-        MCPanel hotspots = new MCPanel(left, top, leftW, height)
-                .setTitle(translate("gui.krypton_hybrid.section.insights"))
-                .setCollapsible(true);
-        hotspots.addEntry(this::drawHotspotEntries);
-        activePanels.add(hotspots);
-
-        MCPanel security = new MCPanel(left + leftW + gap, top, rightW, rightH)
-                .setTitle(translate("gui.krypton_hybrid.section.security"))
-                .setCollapsible(true);
-        security.addEntry(this::drawSecurityEntries);
-        activePanels.add(security);
-
-        MCPanel client = new MCPanel(left + leftW + gap, top + rightH + gap, rightW, rightH)
-                .setTitle(translate("gui.krypton_hybrid.section.client"))
-                .setCollapsible(true);
-        client.addEntry(this::drawClientEntries);
-        activePanels.add(client);
-    }
-
-    private void drawHotspotEntries(KryptonGuiGraphics g, int x, int y, int w, int h) {
-        int ly = drawMetric(g, x, y, w, "gui.krypton_hybrid.label.tracked_types",
-                String.format("%,d", snap.trackedTypeCount()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_mods",
-                String.format("%,d", snap.trackedModCount()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_coverage",
-                String.format("%.1f%%", snap.trackedCoveragePercent()), qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_type_packets",
-                String.format("%,d", snap.totalTrackedTypePackets()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_type_bytes",
-                NetworkTrafficStats.formatBytes(snap.totalTrackedTypeBytes()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_mod_packets",
-                String.format("%,d", snap.totalTrackedModPackets()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.tracked_mod_bytes",
-                NetworkTrafficStats.formatBytes(snap.totalTrackedModBytes()));
-        ly += 4;
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.hottest_packet",
-                truncate(snap.hottestPacketType(), w - 140), UITheme.colors().accentLight());
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.hottest_packet_bytes",
-                NetworkTrafficStats.formatBytes(snap.hottestPacketTypeBytes()) + " / " +
-                        String.format("%,d pkt", snap.hottestPacketTypePackets()));
-        ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.hottest_mod",
-                truncate(snap.hottestModId(), w - 140), UITheme.colors().accentLight());
-        drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.hottest_mod_bytes",
-                NetworkTrafficStats.formatBytes(snap.hottestModBytes()) + " / " +
-                        String.format("%,d pkt", snap.hottestModPackets()));
-    }
-
-    private void drawSecurityEntries(KryptonGuiGraphics g, int x, int y, int w, int h) {
-        var c = UITheme.colors();
-        int statusColor = snap.securityEnabled() ? c.successColor() : c.dangerColor();
-        int ly = drawMetricWithTooltip(g, x, y, w,
-                "gui.krypton_hybrid.label.security_enabled",
-                snap.securityEnabled() ? translate("gui.krypton_hybrid.state.enabled") : translate("gui.krypton_hybrid.state.disabled"),
-                statusColor,
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.enabled.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.enabled.desc")
-                ));
-        long total = snap.securityTotalEvents();
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.security_total_events",
-                String.format("%,d", total),
-                total == 0 ? c.successColor() : c.warningColor(),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.total.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.total.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.security_decomp_bombs",
-                String.format("%,d", snap.secDecompressionBombs()),
-                inverseQualityColor(snap.secDecompressionBombs(), 0, 3),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.decomp.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.decomp.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.security_handshake_rejected",
-                String.format("%,d", snap.secHandshakesRejected()),
-                inverseQualityColor(snap.secHandshakesRejected(), 0, 5),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.handshake.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.handshake.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.security_anomaly_disconnects",
-                String.format("%,d", snap.secAnomalyDisconnects()),
-                inverseQualityColor(snap.secAnomalyDisconnects(), 0, 2),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.anomaly.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.anomaly.desc")
-                ));
-        drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.security_watermark_breaches",
-                String.format("%,d", snap.secWatermarkBreaches()),
-                inverseQualityColor(snap.secWatermarkBreaches(), 0, 5),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.watermark.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.security.watermark.desc")
-                ));
-    }
-
-    private void drawClientEntries(KryptonGuiGraphics g, int x, int y, int w, int h) {
-        long age = KryptonStatsClientController.latestSnapshotAgeMs();
-        long req = KryptonStatsClientController.snapshotRequestCount();
-        long recv = KryptonStatsClientController.snapshotReceiveCount();
-        long rtt = KryptonStatsClientController.lastRoundTripMs();
-        double success = req == 0 ? 100.0 : (recv * 100.0 / (double) req);
-        int ly = drawMetricWithTooltip(g, x, y, w,
-                "gui.krypton_hybrid.label.client_snapshot_age",
-                formatFreshness(age),
-                freshnessColor(age),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.age.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.age.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.client_rtt",
-                rtt <= 0 ? "--" : rtt + " ms",
-                rttColor(rtt),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.rtt.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.rtt.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.client_requests",
-                String.format("%,d", req),
-                UITheme.colors().textPrimary(),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.requests.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.requests.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.client_received",
-                String.format("%,d", recv),
-                UITheme.colors().textPrimary(),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.received.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.received.desc")
-                ));
-        ly = drawMetricWithTooltip(g, x, ly, w,
-                "gui.krypton_hybrid.label.client_success_rate",
-                String.format("%.1f%%", success),
-                qualityColor(success, 95.0, 80.0),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.success.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.success.desc")
-                ));
-        drawMetricWithTooltip(g, x, ly, w, "gui.krypton_hybrid.label.client_hud",
-                com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay.isVisible()
-                        ? translate("gui.krypton_hybrid.state.enabled")
-                        : translate("gui.krypton_hybrid.state.disabled"),
-                com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay.isVisible() ? UITheme.colors().successColor() : UITheme.colors().textSecondary(),
-                List.of(
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.hud.title"),
-                        Component.translatable("gui.krypton_hybrid.tooltip.client.hud.desc")
-                ));
-    }
-
-    private int drawMetricWithTooltip(KryptonGuiGraphics g,
-                                      int x,
-                                      int y,
-                                      int width,
-                                      String labelKey,
-                                      String value,
-                                      int valueColor,
-                                      List<Component> tooltipLines) {
-        int nextY = drawMetric(g, x, y, width, labelKey, value, valueColor);
-        if (lastMouseX >= x && lastMouseX <= x + width && lastMouseY >= y && lastMouseY <= nextY) {
-            summaryTooltip = tooltipLines;
-        }
-        return nextY;
-    }
-
-    // ??? Mods table renderer ???
-
-    /** Returns [x0, x1, x2, x3, y, h] ??three sort-chip ranges and shared y/h. */
-    private int[] sortChipBounds(int x, int y, int w) {
-        int h = Math.max(16, this.font.lineHeight + 6);
-        int gap = 6;
-        int third = (w - gap * 2) / 3;
-        int x0 = x;
-        int x1 = x + third + gap;
-        int x2 = x + (third + gap) * 2;
-        int x3 = x + w; // right edge of 3rd chip
-        return new int[]{x0, x1, x2, x3, y, h};
-    }
-
-    private void drawModsContent(KryptonGuiGraphics g, int x, int y, int w, int h) {
-        var c = UITheme.colors();
-        long totalPacketsAll = Math.max(1L, snap.totalTrackedModPackets());
-
-        // Sort chips
-        int[] sb = sortChipBounds(x, y, w);
-        int chipH = sb[5];
-        drawSortChip(g, sb[0], sb[4], sb[1] - sb[0] - 6, chipH, modSort == ModSort.BYTES,   "gui.krypton_hybrid.sort.bytes");
-        drawSortChip(g, sb[1], sb[4], sb[2] - sb[1] - 6, chipH, modSort == ModSort.PACKETS, "gui.krypton_hybrid.sort.packets");
-        drawSortChip(g, sb[2], sb[4], sb[3] - sb[2],     chipH, modSort == ModSort.NAME,    "gui.krypton_hybrid.sort.name");
-
-        // Totals line
-        int headerY = y + chipH + 6;
-        long totalBytes = Math.max(1L, snap.totalTrackedModBytes());
-        long totalPackets = snap.totalTrackedModPackets();
-        String totals = Component.translatable("gui.krypton_hybrid.mods.totals",
-                snap.trackedModCount(),
-                String.format("%,d", totalPackets),
-                NetworkTrafficStats.formatBytes(snap.totalTrackedModBytes())).getString();
-        g.drawString(this.font, totals, x, headerY, c.textSecondary(), false);
-
-        // List area
-        int listTop = headerY + lineH() + 2;
-        int listBottom = y + h;
-        int listH = listBottom - listTop;
-        modListInnerX = x;
-        modListInnerY = listTop;
-        modListInnerW = w;
-        modListInnerH = listH;
-
-        List<StatsSnapshotPayload.ModEntry> data = sortedMods();
-        int rowH = lineH() + 6;
-        int totalRows = data.size();
-        int visibleRows = Math.max(1, listH / rowH);
-        int maxScroll = Math.max(0, totalRows - visibleRows);
-        if (modScroll > maxScroll) modScroll = maxScroll;
-        if (modScroll < 0) modScroll = 0;
-
-        int rowsToDraw = Math.min(visibleRows, totalRows - modScroll);
-        if (totalRows == 0) {
-            g.drawString(this.font, Component.translatable("gui.krypton_hybrid.mods.empty").getString(),
-                    x, listTop + 4, c.textMuted(), false);
-            return;
-        }
-
-        // Reserve scrollbar gutter when needed
-        boolean hasScrollbar = totalRows > visibleRows;
-        int rowW = w - (hasScrollbar ? 8 : 0);
-
-        g.enableScissor(x, listTop, x + rowW, listBottom);
-        for (int i = 0; i < rowsToDraw; i++) {
-            int idx = modScroll + i;
-            StatsSnapshotPayload.ModEntry e = data.get(idx);
-            int ry = listTop + i * rowH;
-
-            // Alternating row background
-            if ((idx & 1) == 0) {
-                UITheme.fillRoundedRect(g, x, ry, rowW, rowH - 2, 3,
-                        UITheme.withAlpha(c.widgetBg(), 0x60));
+            g.enableScissor(px + 2, cy - 2, px + pw - 2, cy + ch + 2);
+            if (settingsOpen) {
+                renderSettings(g);
+            } else if (snap == null) {
+                drawCentered(g, translate("gui.krypton_hybrid.dash.waiting"), cx + cw / 2, cy + ch / 2 - 4, c.textMuted());
+            } else {
+                switch (tab) {
+                    case OVERVIEW -> renderOverview(g, snap);
+                    case TRAFFIC -> renderTraffic(g, snap);
+                    case SECURITY -> renderSecurity(g, snap);
+                    default -> { }
+                }
             }
+            g.disableScissor();
+        }
 
-            // Right-side metric (bytes + percent + packets)
-            double frac = e.bytes() / (double) totalBytes;
-            String right = String.format("%s ? %.1f%% ? %,d",
-                    NetworkTrafficStats.formatBytes(e.bytes()),
-                    frac * 100.0,
-                    e.packets());
-            int rightW = this.font.width(right);
+        renderFooter(g, snap);
+        // Widgets (the mod filter box) draw through vanilla, on top of the panel.
+        g.flush();
+        super.render(poseStack, mouseX, mouseY, partialTick);
 
-            // Left-side mod id (truncated to fit)
-            int idMaxW = rowW - rightW - 16;
-            String id = truncate(e.modId(), Math.max(40, idMaxW));
-            g.drawString(this.font, id, x + 4, ry + 2, c.textPrimary(), false);
-            g.drawString(this.font, right, x + rowW - rightW - 4, ry + 2, c.textSecondary(), false);
+        if (tooltip != null && !tooltip.isEmpty()) {
+            renderTooltip(g, tooltip, mouseX + 10, mouseY + 10);
+        }
+        g.endBatch();
+    }
 
-            // Proportional traffic bar at the bottom of the row
-            int barMax = rowW - 8;
-            int barFill = Math.max(1, (int) (barMax * frac));
-            int barColor = UITheme.lerpColor(c.accent(), c.accentSecondary(), Math.min(1f, (float) frac * 2f));
-            UITheme.fillRoundedRect(g, x + 4, ry + rowH - 5, barMax, 2, 1,
-                    UITheme.withAlpha(c.widgetBorder(), 0x60));
-            UITheme.fillRoundedRect(g, x + 4, ry + rowH - 5, barFill, 2, 1, barColor);
+    private void renderHeader(KryptonGuiGraphics g) {
+        var c = UITheme.colors();
+        int ty = py + 7;
+        Component title = this.title.copy().withStyle(ChatFormatting.BOLD);
+        g.drawString(this.font, title, px + PAD, ty, c.textPrimary(), false);
 
-            if (lastMouseX >= x && lastMouseX <= x + rowW && lastMouseY >= ry && lastMouseY <= ry + rowH - 2) {
-                summaryTooltip = modsTooltipForEntry(idx + 1, e, frac, totalPacketsAll);
+        int right = px + pw - 6;
+        int btn = 14;
+        int by = py + 4;
+        iconButton(g, right - btn, by, btn, "✕", false,
+                List.of(Component.translatable("gui.krypton_hybrid.dash.close")), this::onClose);
+        iconButton(g, right - btn * 2 - 2, by, btn, "⚙", settingsOpen,
+                List.of(Component.translatable("gui.krypton_hybrid.dash.settings")),
+                () -> settingsOpen = !settingsOpen);
+        iconButton(g, right - btn * 3 - 4, by, btn, "↻", false,
+                List.of(Component.translatable("gui.krypton_hybrid.dash.refresh"),
+                        Component.translatable("gui.krypton_hybrid.dash.refresh.desc")),
+                KryptonStatsClientController::requestFreshSnapshot);
+        int pillLimit = right - btn * 3 - 10;
+
+        int x = px + PAD + this.font.width(title) + 8;
+        KryptonStatsClientController.Codec codec = KryptonStatsClientController.currentCodec();
+        x = pill(g, x, ty, pillLimit, translate("gui.krypton_hybrid.dash.codec." + codec.name().toLowerCase(Locale.ROOT)),
+                c.accentLight(), List.of(
+                        Component.translatable("gui.krypton_hybrid.dash.codec.title"),
+                        Component.translatable("gui.krypton_hybrid.dash.codec.desc")));
+
+        boolean receiving = KryptonStatsClientController.latestSnapshotAgeMs() <= 10_000L;
+        String live = translate(receiving ? "gui.krypton_hybrid.dash.live" : "gui.krypton_hybrid.dash.live.waiting");
+        x = pill(g, x, ty, pillLimit, "● " + live, receiving ? c.successColor() : c.textMuted(), List.of(
+                Component.translatable("gui.krypton_hybrid.dash.live.title"),
+                Component.translatable("gui.krypton_hybrid.dash.live.desc")));
+
+        long rtt = KryptonStatsClientController.lastRoundTripMs();
+        if (rtt > 0) {
+            String text = "RTT " + rtt + " ms";
+            if (x + this.font.width(text) <= pillLimit) {
+                g.drawString(this.font, text, x + 2, ty, c.textMuted(), false);
+            }
+        }
+    }
+
+    private void renderTabs(KryptonGuiGraphics g) {
+        var c = UITheme.colors();
+        int y = py + HEADER_H;
+        Shapes.hairline(g, px + PAD, px + pw - PAD, y + TABS_H - 0.5F, UITheme.withAlpha(c.divider(), 0xA0));
+        int x = px + PAD;
+        float activeX = -1;
+        float activeW = 0;
+        for (Tab t : Tab.values()) {
+            String label = translate("gui.krypton_hybrid.dash.tab." + t.name().toLowerCase(Locale.ROOT));
+            int w = this.font.width(label) + 12;
+            boolean active = t == tab && !settingsOpen;
+            float hover = anim.hover("tab." + t.name(), inside(x, y, w, TABS_H - 1));
+            if (!active && hover > 0.01F) {
+                Shapes.roundRect(g, x + 1, y + 1, w - 2, TABS_H - 5, 4, UITheme.withAlpha(c.accent(), (int) (0x26 * hover)));
+            }
+            int color = active ? c.textPrimary() : UITheme.lerpColor(c.textSecondary(), c.accentLight(), hover);
+            g.drawString(this.font, label, x + 6, y + 3, color, false);
+            if (active) {
+                activeX = x + 4;
+                activeW = w - 8;
+            }
+            final Tab target = t;
+            hits.add(new Hit(x, y, w, TABS_H, () -> {
+                tab = target;
+                settingsOpen = false;
+                modScroll = 0;
+            }));
+            x += w + 2;
+        }
+        if (activeX >= 0) {
+            // The underline slides between tabs instead of jumping.
+            float ux = anim.approach("tab.underline.x", activeX, 18F);
+            float uw = anim.approach("tab.underline.w", activeW, 18F);
+            Shapes.pill(g, ux, y + TABS_H - 2.5F, uw, 2.5F, c.accent());
+        }
+    }
+
+    private void renderFooter(KryptonGuiGraphics g, StatsSnapshotPayload snap) {
+        var c = UITheme.colors();
+        int y = py + ph - FOOTER_H;
+        Shapes.hairline(g, px + PAD, px + pw - PAD, y - 3, UITheme.withAlpha(c.divider(), 0x80));
+        String left = snap == null
+                ? translate("gui.krypton_hybrid.dash.footer.scope")
+                : Component.translatable("gui.krypton_hybrid.dash.footer.uptime", Fmt.duration(snap.elapsedSeconds())).getString();
+        String right = Component.translatable("gui.krypton_hybrid.dash.footer.keys",
+                KryptonStatsClientController.openStatsKey().getTranslatedKeyMessage()).getString();
+        int rightW = this.font.width(right);
+        g.drawString(this.font, Fmt.truncate(this.font, left, pw - PAD * 2 - rightW - 8), px + PAD, y + 1, c.textMuted(), false);
+        g.drawString(this.font, right, px + pw - PAD - rightW, y + 1, c.textMuted(), false);
+    }
+
+    // ------------------------------------------------------------------
+    //  Overview
+    // ------------------------------------------------------------------
+
+    private void renderOverview(KryptonGuiGraphics g, StatsSnapshotPayload snap) {
+        var c = UITheme.colors();
+        KryptonStatsHistory.Sample live = KryptonStatsHistory.latest();
+
+        int cols = cw >= 380 ? 4 : 2;
+        int gap = 6;
+        int cardW = (cw - gap * (cols - 1)) / cols;
+        int cardH = 36;
+        String approx = "~";
+        String[] labels = {
+                "gui.krypton_hybrid.dash.kpi.saving",
+                "gui.krypton_hybrid.dash.kpi.out",
+                "gui.krypton_hybrid.dash.kpi.in",
+                "gui.krypton_hybrid.dash.kpi.pps"
+        };
+        String[] values = {
+                Fmt.percent(snap.savingPercent()),
+                live != null ? Fmt.rate(live.outWireBps()) : approx + Fmt.rate(snap.wireBytesPerSecond()),
+                live != null ? Fmt.rate(live.inBps()) : approx + Fmt.rate(snap.receivedBytesPerSecond()),
+                live != null ? Fmt.perSecond(live.outPps()) : approx + Fmt.perSecond(snap.packetsSentPerSecond())
+        };
+        int[] colors = {
+                qualityColor(snap.savingPercent(), 30.0, 10.0),
+                c.accent(),
+                c.accentTertiary(),
+                c.accentLight()
+        };
+        double[][] series = {
+                KryptonStatsHistory.series(KryptonStatsHistory.Field.SAVING),
+                KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_WIRE),
+                KryptonStatsHistory.series(KryptonStatsHistory.Field.IN),
+                KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_PPS)
+        };
+        long dataVersion = KryptonStatsHistory.version();
+        for (int i = 0; i < 4; i++) {
+            int x = cx + (i % cols) * (cardW + gap);
+            int y = cy + (i / cols) * (cardH + gap);
+            float hover = anim.hover("kpi." + i, inside(x, y, cardW, cardH));
+            Shapes.roundRect(g, x, y, cardW, cardH, CARD_RADIUS, cardBackground());
+            if (hover > 0.01F) {
+                Shapes.roundRectStroke(g, x, y, cardW, cardH, CARD_RADIUS, stroke(),
+                        UITheme.withAlpha(colors[i], (int) (0xB0 * hover)));
+            }
+            g.drawString(this.font, Fmt.truncate(this.font, translate(labels[i]), cardW - 10), x + 6, y + 4, c.textMuted(), false);
+            Component value = Component.literal(Fmt.truncate(this.font, values[i], cardW - 12)).withStyle(ChatFormatting.BOLD);
+            g.drawString(this.font, value, x + 6, y + 14, i == 0 ? colors[0] : c.textPrimary(), false);
+            Charts.sparkline(g, "dash.kpi." + i, dataVersion, x + 6, y + 26, cardW - 12, 7, series[i], colors[i]);
+            if (inside(x, y, cardW, cardH)) {
+                tooltip = List.of(
+                        Component.translatable(labels[i]),
+                        Component.translatable(labels[i] + ".desc"));
+            }
+        }
+
+        int rows = (4 + cols - 1) / cols;
+        int top = cy + rows * (cardH + gap);
+        int stripY = cy + ch - 10;
+        int boxH = stripY - 6 - top;
+        boolean wide = cw >= 380;
+        int chartW = wide ? (int) (cw * 0.6f) : cw;
+
+        String chartTitle = Component.translatable("gui.krypton_hybrid.dash.chart.out",
+                KryptonStatsHistory.spanSeconds()).getString();
+        renderRateChart(g, "dash.chart.out", cx, top, chartW, boxH, chartTitle,
+                new double[][]{
+                        KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_WIRE),
+                        KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_ORIGINAL)
+                },
+                new int[]{c.accent(), c.textMuted()},
+                new String[]{"gui.krypton_hybrid.dash.legend.wire", "gui.krypton_hybrid.dash.legend.original"},
+                true);
+
+        if (wide) {
+            int bx = cx + chartW + gap;
+            int bw = cw - chartW - gap;
+            renderTopMods(g, snap, bx, top, bw, boxH);
+        }
+
+        long totalEvents = snap.securityTotalEvents();
+        String[] stripText = {
+                Component.translatable("gui.krypton_hybrid.dash.strip.bundle", Fmt.percent(snap.bundleHitRatePercent())).getString(),
+                Component.translatable("gui.krypton_hybrid.dash.strip.coalesce", Fmt.percent(snap.coalesceDropRatePercent())).getString(),
+                Component.translatable("gui.krypton_hybrid.dash.strip.avg",
+                        Fmt.bytes(snap.averageOriginalPacketBytes()), Fmt.bytes(snap.averageWirePacketBytes())).getString(),
+                Component.translatable("gui.krypton_hybrid.dash.strip.security", Fmt.count(totalEvents)).getString()
+        };
+        int x = cx;
+        for (int i = 0; i < stripText.length; i++) {
+            int color = i == 3 ? (totalEvents == 0 ? c.successColor() : c.warningColor()) : c.textSecondary();
+            if (x + this.font.width(stripText[i]) > cx + cw) {
+                break;
+            }
+            g.drawString(this.font, stripText[i], x, stripY, color, false);
+            x += this.font.width(stripText[i]) + 12;
+        }
+    }
+
+    private void renderTopMods(KryptonGuiGraphics g, StatsSnapshotPayload snap, int x, int y, int w, int h) {
+        var c = UITheme.colors();
+        Shapes.roundRect(g, x, y, w, h, CARD_RADIUS, cardBackground());
+        g.drawString(this.font, translate("gui.krypton_hybrid.dash.topmods"), x + 6, y + 5, c.textSecondary(), false);
+        if (snap != topModsSnapshot) {
+            List<StatsSnapshotPayload.ModEntry> sorted = new ArrayList<>(snap.topMods());
+            sorted.sort(Comparator.comparingLong(StatsSnapshotPayload.ModEntry::bytes).reversed());
+            topModsCache = sorted;
+            topModsSnapshot = snap;
+        }
+        List<StatsSnapshotPayload.ModEntry> mods = topModsCache;
+        long total = Math.max(1L, snap.totalTrackedModBytes());
+        int rowH = 13;
+        int maxRows = Math.max(0, (h - 18) / rowH);
+        if (mods.isEmpty()) {
+            g.drawString(this.font, translate("gui.krypton_hybrid.dash.mods.empty"), x + 6, y + 20, c.textMuted(), false);
+            return;
+        }
+        int nameW = Math.max(40, (w - 12) * 2 / 5);
+        for (int i = 0; i < Math.min(maxRows, mods.size()); i++) {
+            StatsSnapshotPayload.ModEntry e = mods.get(i);
+            int ry = y + 18 + i * rowH;
+            double share = e.bytes() / (double) total;
+            String pct = Fmt.percent(share * 100.0);
+            int pctW = this.font.width(pct);
+            g.drawString(this.font, Fmt.truncate(this.font, e.modId(), nameW - 4), x + 6, ry, c.textPrimary(), false);
+            int barX = x + 6 + nameW;
+            int barW = w - 12 - nameW - pctW - 6;
+            if (barW > 8) {
+                Charts.bar(g, barX, ry + 2, barW, 4, share, c.accent());
+            }
+            g.drawString(this.font, pct, x + w - 6 - pctW, ry, c.textSecondary(), false);
+            if (inside(x, ry - 2, w, rowH)) {
+                tooltip = modTooltip(i + 1, e, snap);
+            }
+        }
+    }
+
+    /** A titled chart box with legend and a y-axis maximum label. */
+    private void renderRateChart(KryptonGuiGraphics g, String slot, int x, int y, int w, int h, String title,
+                                 double[][] series, int[] colors, String[] legendKeys, boolean bytes) {
+        var c = UITheme.colors();
+        Shapes.roundRect(g, x, y, w, h, CARD_RADIUS, cardBackground());
+        g.drawString(this.font, Fmt.truncate(this.font, title, w / 2), x + 6, y + 5, c.textSecondary(), false);
+
+        int lx = x + w - 6;
+        for (int i = legendKeys.length - 1; i >= 0; i--) {
+            String text = translate(legendKeys[i]);
+            int tw = this.font.width(text);
+            lx -= tw;
+            g.drawString(this.font, text, lx, y + 5, c.textMuted(), false);
+            lx -= 10;
+            Shapes.pill(g, lx, y + 7.5F, 7, 2.5F, colors[i]);
+            lx -= 6;
+        }
+
+        int chartX = x + 6;
+        int chartY = y + 17;
+        int chartW = w - 12;
+        int chartH = h - 22;
+        if (chartH < 12) {
+            return;
+        }
+        if (KryptonStatsHistory.size() < 2) {
+            drawCentered(g, translate("gui.krypton_hybrid.dash.chart.collecting"), x + w / 2, chartY + chartH / 2 - 4, c.textMuted());
+            return;
+        }
+        double max = Charts.niceMax(Charts.max(series));
+        Charts.lineChart(g, slot, KryptonStatsHistory.version(), chartX, chartY, chartW, chartH, max, series, colors);
+        String axis = bytes ? Fmt.rate(max) : Fmt.perSecond(max);
+        g.drawString(this.font, axis, chartX + 2, chartY + 1, UITheme.withAlpha(c.textMuted(), 0xC0), false);
+    }
+
+    // ------------------------------------------------------------------
+    //  Traffic
+    // ------------------------------------------------------------------
+
+    private void renderTraffic(KryptonGuiGraphics g, StatsSnapshotPayload snap) {
+        var c = UITheme.colors();
+        KryptonStatsHistory.Sample live = KryptonStatsHistory.latest();
+        int gap = 6;
+
+        int meterH = 26;
+        // The outbound column needs 96 px for all seven rows; the chart takes what is left.
+        int chartH = clamp(ch - 96 - gap - meterH - gap, 40, ch * 40 / 100);
+        String chartTitle = Component.translatable("gui.krypton_hybrid.dash.chart.pps",
+                KryptonStatsHistory.spanSeconds()).getString();
+        renderRateChart(g, "dash.chart.pps", cx, cy, cw, chartH, chartTitle,
+                new double[][]{
+                        KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_PPS),
+                        KryptonStatsHistory.series(KryptonStatsHistory.Field.IN_PPS)
+                },
+                new int[]{c.accent(), c.accentTertiary()},
+                new String[]{"gui.krypton_hybrid.dash.legend.out", "gui.krypton_hybrid.dash.legend.in"},
+                false);
+
+        int colTop = cy + chartH + gap;
+        int colH = ch - chartH - gap - meterH - gap;
+        int colW = (cw - gap) / 2;
+
+        sectionBox(g, cx, colTop, colW, colH, "gui.krypton_hybrid.dash.section.out");
+        metricRows(g, cx + 6, colTop + 17, colW - 12, colTop + colH - 2, List.of(
+                new MetricRow("gui.krypton_hybrid.dash.m.live_rate",
+                        live != null ? Fmt.rate(live.outWireBps()) : "--", c.accentLight()),
+                new MetricRow("gui.krypton_hybrid.dash.m.original_total", Fmt.bytes(snap.bytesSentOriginal()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.wire_total", Fmt.bytes(snap.bytesSentWire()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.saved",
+                        Fmt.bytes(snap.savedBytes()) + " (" + Fmt.percent(snap.savingPercent()) + ")",
+                        qualityColor(snap.savingPercent(), 30.0, 10.0)),
+                new MetricRow("gui.krypton_hybrid.dash.m.ratio",
+                        String.format(Locale.ROOT, "%.3f", snap.compressionRatio()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.avg_packet",
+                        Fmt.bytes(snap.averageOriginalPacketBytes()) + " → " + Fmt.bytes(snap.averageWirePacketBytes()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.packets", Fmt.count(snap.packetsSent()), c.textPrimary())));
+
+        int rx = cx + colW + gap;
+        sectionBox(g, rx, colTop, colW, colH, "gui.krypton_hybrid.dash.section.in");
+        metricRows(g, rx + 6, colTop + 17, colW - 12, colTop + colH - 2, List.of(
+                new MetricRow("gui.krypton_hybrid.dash.m.live_rate",
+                        live != null ? Fmt.rate(live.inBps()) : "--", c.accentLight()),
+                new MetricRow("gui.krypton_hybrid.dash.m.received_total", Fmt.bytes(snap.bytesReceived()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.packets", Fmt.count(snap.packetsReceived()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.avg_packet_in", Fmt.bytes(snap.averageReceivedPacketBytes()), c.textPrimary()),
+                new MetricRow("gui.krypton_hybrid.dash.m.lifetime_rate", Fmt.rate(snap.receivedBytesPerSecond()), c.textSecondary())));
+
+        int my = cy + ch - meterH;
+        int mw = (cw - gap * 2) / 3;
+        meter(g, cx, my, mw, "gui.krypton_hybrid.dash.meter.bundle", snap.bundleHitRatePercent(),
+                qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
+        meter(g, cx + mw + gap, my, mw, "gui.krypton_hybrid.dash.meter.coalesce", snap.coalesceDropRatePercent(),
+                c.accentLight());
+        meter(g, cx + (mw + gap) * 2, my, mw, "gui.krypton_hybrid.dash.meter.coverage", snap.trackedCoveragePercent(),
+                qualityColor(snap.trackedCoveragePercent(), 85.0, 60.0));
+    }
+
+    private void meter(KryptonGuiGraphics g, int x, int y, int w, String key, double percent, int color) {
+        var c = UITheme.colors();
+        String value = Fmt.percent(percent);
+        int vw = this.font.width(value);
+        g.drawString(this.font, Fmt.truncate(this.font, translate(key), w - vw - 6), x, y, c.textSecondary(), false);
+        g.drawString(this.font, value, x + w - vw, y, c.textPrimary(), false);
+        Charts.bar(g, x, y + 12, w, 5, percent / 100.0, color);
+        if (inside(x, y, w, 18)) {
+            tooltip = List.of(Component.translatable(key), Component.translatable(key + ".desc"));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    //  Mods
+    // ------------------------------------------------------------------
+
+    private void renderMods(KryptonGuiGraphics g, StatsSnapshotPayload snap) {
+        var c = UITheme.colors();
+
+        int boxW = 120;
+        float focus = anim.approach("filter.focus", modFilter.isFocused() ? 1F : 0F, 14F);
+        float hoverBox = anim.hover("filter.hover", inside(cx, cy, boxW, 15));
+        Shapes.roundRect(g, cx, cy, boxW, 15, 7.5F, cardBackground());
+        Shapes.roundRectStroke(g, cx, cy, boxW, 15, 7.5F, stroke(),
+                UITheme.lerpColor(UITheme.withAlpha(c.widgetBorder(), 0xC0 + (int) (0x30 * hoverBox)), c.accent(), focus));
+        if (modFilterText.isEmpty() && !modFilter.isFocused()) {
+            g.drawString(this.font, translate("gui.krypton_hybrid.dash.mods.filter"), cx + 4, cy + 4, c.textMuted(), false);
+        }
+
+        List<StatsSnapshotPayload.ModEntry> mods = filteredMods(snap);
+        String totals = Component.translatable("gui.krypton_hybrid.dash.mods.totals",
+                snap.trackedModCount(), Fmt.bytes(snap.totalTrackedModBytes())).getString();
+        int tw = this.font.width(totals);
+        g.drawString(this.font, totals, cx + cw - tw, cy + 4, c.textMuted(), false);
+
+        int headerY = cy + 20;
+        int pctW = 74;
+        int bytesW = 54;
+        int packetsW = 54;
+        int avgW = 44;
+        int nameW = cw - pctW - bytesW - packetsW - avgW - 8;
+        int colName = cx + 4;
+        int colBytes = colName + nameW;
+        int colPct = colBytes + bytesW;
+        int colPackets = colPct + pctW;
+        int colAvg = colPackets + packetsW;
+        sortHeader(g, colName, headerY, nameW, "gui.krypton_hybrid.dash.mods.col.name", ModSort.NAME, false);
+        sortHeader(g, colBytes, headerY, bytesW, "gui.krypton_hybrid.dash.mods.col.bytes", ModSort.BYTES, true);
+        g.drawString(this.font, translate("gui.krypton_hybrid.dash.mods.col.share"), colPct + 4, headerY, c.textMuted(), false);
+        sortHeader(g, colPackets, headerY, packetsW, "gui.krypton_hybrid.dash.mods.col.packets", ModSort.PACKETS, true);
+        sortHeader(g, colAvg, headerY, avgW, "gui.krypton_hybrid.dash.mods.col.avg", ModSort.AVG, true);
+        Shapes.hairline(g, cx, cx + cw, headerY + 11, UITheme.withAlpha(c.divider(), 0xA0));
+
+        modListX = cx;
+        modListY = headerY + 14;
+        modListW = cw;
+        modListH = cy + ch - modListY;
+        int rowH = 13;
+        int visible = Math.max(1, modListH / rowH);
+        int maxScroll = Math.max(0, mods.size() - visible);
+        modScroll = clamp(modScroll, 0, maxScroll);
+
+        if (mods.isEmpty()) {
+            String empty = translate(modFilterText.isEmpty()
+                    ? "gui.krypton_hybrid.dash.mods.empty"
+                    : "gui.krypton_hybrid.dash.mods.no_match");
+            drawCentered(g, empty, cx + cw / 2, modListY + 12, c.textMuted());
+            return;
+        }
+
+        long totalBytes = Math.max(1L, snap.totalTrackedModBytes());
+        boolean scrollbar = mods.size() > visible;
+        int rowW = cw - (scrollbar ? 6 : 0);
+        g.enableScissor(modListX, modListY, modListX + rowW, modListY + modListH);
+        for (int i = 0; i < visible && modScroll + i < mods.size(); i++) {
+            int idx = modScroll + i;
+            StatsSnapshotPayload.ModEntry e = mods.get(idx);
+            int ry = modListY + i * rowH;
+            boolean hover = inside(modListX, ry, rowW, rowH);
+            float hoverAnim = anim.hover("mod." + e.modId(), hover);
+            if ((idx & 1) == 0) {
+                Shapes.roundRect(g, cx, ry, rowW, rowH - 1, 3, UITheme.withAlpha(c.widgetBg(), 0x50));
+            }
+            if (hoverAnim > 0.01F) {
+                Shapes.roundRect(g, cx, ry, rowW, rowH - 1, 3, UITheme.withAlpha(c.accent(), (int) (0x34 * hoverAnim)));
+            }
+            double share = e.bytes() / (double) totalBytes;
+            double avg = e.packets() == 0 ? 0.0 : e.bytes() / (double) e.packets();
+            int ty = ry + 3;
+            g.drawString(this.font, Fmt.truncate(this.font, e.modId(), nameW - 6), colName, ty, c.textPrimary(), false);
+            g.drawString(this.font, Fmt.bytes(e.bytes()), colBytes, ty, c.textPrimary(), false);
+            String pct = Fmt.percent(share * 100.0);
+            int pw2 = this.font.width(pct);
+            Charts.bar(g, colPct + 4, ry + 4, pctW - pw2 - 12, 4, share, c.accent());
+            g.drawString(this.font, pct, colPct + pctW - pw2 - 4, ty, c.textSecondary(), false);
+            g.drawString(this.font, Fmt.count(e.packets()), colPackets, ty, c.textSecondary(), false);
+            g.drawString(this.font, Fmt.bytes(avg), colAvg, ty, c.textSecondary(), false);
+            if (hover) {
+                tooltip = modTooltip(idx + 1, e, snap);
             }
         }
         g.disableScissor();
 
-        // Scrollbar
-        if (hasScrollbar) {
-            int trackX = x + w - 4;
-            UITheme.fillRoundedRect(g, trackX, listTop, 3, listH, 1, c.scrollbarTrack());
-            int thumbH = Math.max(14, listH * visibleRows / totalRows);
-            int thumbY = listTop + (listH - thumbH) * modScroll / Math.max(1, maxScroll);
-            UITheme.fillRoundedRect(g, trackX, thumbY, 3, thumbH, 1, c.scrollbarThumb());
+        if (scrollbar) {
+            int trackX = cx + cw - 3;
+            Shapes.pill(g, trackX, modListY, 3, modListH, c.scrollbarTrack());
+            float thumbH = Math.max(12, modListH * visible / (float) mods.size());
+            float targetY = modListY + (modListH - thumbH) * modScroll / Math.max(1, maxScroll);
+            float thumbY = anim.approach("mods.thumb", targetY, 20F);
+            Shapes.pill(g, trackX, thumbY, 3, thumbH, c.scrollbarThumb());
         }
     }
 
-    private void drawSortChip(KryptonGuiGraphics g, int x, int y, int w, int h, boolean active, String key) {
+    private void sortHeader(KryptonGuiGraphics g, int x, int y, int w, String key, ModSort sort, boolean descendingFirst) {
         var c = UITheme.colors();
-        int bg = active ? UITheme.withAlpha(c.accent(), 0x40) : UITheme.withAlpha(c.widgetBg(), 0xA0);
-        int border = active ? c.accent() : UITheme.withAlpha(c.widgetBorder(), 0xA0);
-        int textColor = active ? c.accentLight() : c.textSecondary();
-        UITheme.fillRoundedRect(g, x, y, w, h, 4, bg);
-        UITheme.drawRoundedBorder(g, x, y, w, h, 4, border);
-        String label = Component.translatable(key).getString();
-        int tw = Math.min(this.font.width(label), w - 8);
-        String safe = truncate(label, w - 8);
-        int sw = this.font.width(safe);
-        g.drawString(this.font, safe, x + (w - sw) / 2, y + (h - this.font.lineHeight) / 2 + 1, textColor, false);
-        // Suppress unused-warning compilation noise
-        if (tw < 0) tw = 0;
-
-        if (lastMouseX >= x && lastMouseX <= x + w && lastMouseY >= y && lastMouseY <= y + h) {
-            summaryTooltip = sortTooltipForKey(key, active);
+        boolean active = modSort == sort;
+        String label = translate(key);
+        if (active) {
+            label += modSortAscending ? " ▲" : " ▼";
         }
+        float hover = anim.hover("sort." + sort.name(), inside(x, y - 2, w, 12));
+        int color = active ? c.accentLight() : UITheme.lerpColor(c.textMuted(), c.textPrimary(), hover);
+        g.drawString(this.font, Fmt.truncate(this.font, label, w - 4), x, y, color, false);
+        hits.add(new Hit(x, y - 2, w, 12, () -> {
+            if (modSort == sort) {
+                modSortAscending = !modSortAscending;
+            } else {
+                modSort = sort;
+                modSortAscending = !descendingFirst;
+            }
+            modScroll = 0;
+        }));
     }
 
-    private List<Component> sortTooltipForKey(String key, boolean active) {
-        List<Component> lines = new ArrayList<>(3);
-        String suffix = key.endsWith("bytes") ? "bytes" : key.endsWith("packets") ? "packets" : "name";
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.sort." + suffix + ".title"));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.sort." + suffix + ".desc"));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.sort.state", active
-                ? translate("gui.krypton_hybrid.tooltip.sort.active")
-                : translate("gui.krypton_hybrid.tooltip.sort.inactive")));
-        return lines;
-    }
-
-    private List<Component> modsTooltipForEntry(int rank,
-                                                StatsSnapshotPayload.ModEntry entry,
-                                                double bytesShare,
-                                                long totalPacketsAll) {
-        List<Component> lines = new ArrayList<>(5);
-        long packets = entry.packets();
-        long bytes = entry.bytes();
-        double packetShare = packets * 100.0 / totalPacketsAll;
-        double avg = packets == 0 ? 0.0 : bytes / (double) packets;
-
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.mod.title", rank, entry.modId()));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.mod.bytes",
-                NetworkTrafficStats.formatBytes(bytes), String.format("%.2f%%", bytesShare * 100.0)));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.mod.packets",
-                String.format("%,d", packets), String.format("%.2f%%", packetShare)));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.mod.avg",
-                String.format("%.1f B", avg)));
-        lines.add(Component.translatable("gui.krypton_hybrid.tooltip.mod.hint"));
-        return lines;
-    }
-
-    private List<StatsSnapshotPayload.ModEntry> sortedMods() {
-        List<StatsSnapshotPayload.ModEntry> mods = new ArrayList<>(snap.topMods());
+    private List<StatsSnapshotPayload.ModEntry> filteredMods(StatsSnapshotPayload snap) {
+        if (snap == modsSnapshot && modFilterText.equals(modsFilter) && modSort == modsSort
+                && modSortAscending == modsAscending) {
+            return modsCache;
+        }
+        modsSnapshot = snap;
+        modsFilter = modFilterText;
+        modsSort = modSort;
+        modsAscending = modSortAscending;
+        String needle = modFilterText.trim().toLowerCase(Locale.ROOT);
+        List<StatsSnapshotPayload.ModEntry> mods = new ArrayList<>();
+        for (StatsSnapshotPayload.ModEntry e : snap.topMods()) {
+            if (needle.isEmpty() || e.modId().toLowerCase(Locale.ROOT).contains(needle)) {
+                mods.add(e);
+            }
+        }
         Comparator<StatsSnapshotPayload.ModEntry> cmp = switch (modSort) {
-            case BYTES   -> Comparator.comparingLong(StatsSnapshotPayload.ModEntry::bytes).reversed();
-            case PACKETS -> Comparator.comparingLong(StatsSnapshotPayload.ModEntry::packets).reversed();
-            case NAME    -> Comparator.comparing(StatsSnapshotPayload.ModEntry::modId, String.CASE_INSENSITIVE_ORDER);
+            case NAME -> Comparator.comparing(StatsSnapshotPayload.ModEntry::modId, String.CASE_INSENSITIVE_ORDER);
+            case BYTES -> Comparator.comparingLong(StatsSnapshotPayload.ModEntry::bytes);
+            case PACKETS -> Comparator.comparingLong(StatsSnapshotPayload.ModEntry::packets);
+            case AVG -> Comparator.comparingDouble(e -> e.packets() == 0 ? 0.0 : e.bytes() / (double) e.packets());
         };
-        mods.sort(cmp);
+        mods.sort(modSortAscending ? cmp : cmp.reversed());
+        modsCache = mods;
         return mods;
     }
 
-    // ??? Render ???
+    private List<Component> modTooltip(int rank, StatsSnapshotPayload.ModEntry e, StatsSnapshotPayload snap) {
+        double byteShare = e.bytes() * 100.0 / Math.max(1L, snap.totalTrackedModBytes());
+        double packetShare = e.packets() * 100.0 / Math.max(1L, snap.totalTrackedModPackets());
+        double avg = e.packets() == 0 ? 0.0 : e.bytes() / (double) e.packets();
+        return List.of(
+                Component.translatable("gui.krypton_hybrid.dash.mods.tip.title", rank, e.modId()),
+                Component.translatable("gui.krypton_hybrid.dash.mods.tip.bytes", Fmt.bytes(e.bytes()), Fmt.percent(byteShare)),
+                Component.translatable("gui.krypton_hybrid.dash.mods.tip.packets", Fmt.count(e.packets()), Fmt.percent(packetShare)),
+                Component.translatable("gui.krypton_hybrid.dash.mods.tip.avg", Fmt.bytes(avg)));
+    }
 
-    @Override
-    public void render(PoseStack poseStack, int mouseX, int mouseY, float partialTick) {
-        KryptonGuiGraphics g = new KryptonGuiGraphics(poseStack);
-        this.lastMouseX = mouseX;
-        this.lastMouseY = mouseY;
-        this.summaryTooltip = null;
+    // ------------------------------------------------------------------
+    //  Security
+    // ------------------------------------------------------------------
 
+    private record Counter(String key, long value, boolean severe) {}
+
+    private void renderSecurity(KryptonGuiGraphics g, StatsSnapshotPayload snap) {
         var c = UITheme.colors();
-        renderBackground(poseStack);
-        g.fill(0, 0, this.width, this.height, c.panelBg());
 
-        // Header: title + subtitle stacked, aligned to font line height
-        int lh = this.font.lineHeight;
-        g.drawString(this.font, this.title, 14, 8, c.textPrimary(), true);
-        g.drawString(this.font,
-                Component.translatable("gui.krypton_hybrid.subtitle").getString(),
-                14, 8 + lh + 2, c.textSecondary(), false);
+        int bannerH = 26;
+        Shapes.roundRect(g, cx, cy, cw, bannerH, CARD_RADIUS, cardBackground());
+        boolean on = snap.securityEnabled();
+        String status = translate(on ? "gui.krypton_hybrid.dash.sec.on" : "gui.krypton_hybrid.dash.sec.off");
+        int statusColor = on ? c.successColor() : c.dangerColor();
+        int sx = pill(g, cx + 6, cy + 9, cx + cw, status, statusColor, List.of(
+                Component.translatable("gui.krypton_hybrid.dash.sec.status.title"),
+                Component.translatable("gui.krypton_hybrid.dash.sec.status.desc")));
+        long total = snap.securityTotalEvents();
+        Component totalText = Component.translatable("gui.krypton_hybrid.dash.sec.total", Fmt.count(total))
+                .withStyle(ChatFormatting.BOLD);
+        g.drawString(this.font, totalText, sx + 6, cy + 9, total == 0 ? c.textPrimary() : c.warningColor(), false);
+        String since = translate("gui.krypton_hybrid.dash.sec.since");
+        g.drawString(this.font, since, cx + cw - 6 - this.font.width(since), cy + 9, c.textMuted(), false);
 
-        // Active tab underline
-        for (int i = 0; i < tabButtons.size(); i++) {
-            MCButton b = tabButtons.get(i);
-            if (Tab.values()[i] == currentTab) {
-                int underlineY = b.getY() + b.getHeight() + 1;
-                UITheme.fillRoundedRect(g, b.getX() + 4, underlineY, b.getWidth() - 8, 2, 1, c.accent());
+        Counter[] counters = {
+                new Counter("rate_limited", snap.secConnectionsRateLimited(), false),
+                new Counter("status_dropped", snap.secStatusRequestsDropped(), false),
+                new Counter("legacy_dropped", snap.secLegacyQueriesDropped(), false),
+                new Counter("handshake_rejected", snap.secHandshakesRejected(), false),
+                new Counter("timeouts", snap.secTimeouts(), false),
+                new Counter("size_rejected", snap.secPacketsSizeRejected(), true),
+                new Counter("read_limit", snap.secReadLimitRejected(), true),
+                new Counter("null_frames", snap.secNullFramesDropped(), false),
+                new Counter("decomp_bombs", snap.secDecompressionBombs(), true),
+                new Counter("anomaly_events", snap.secAnomalyEvents(), false),
+                new Counter("anomaly_disconnects", snap.secAnomalyDisconnects(), true),
+                new Counter("writes_dropped", snap.secWritesDropped(), true),
+                new Counter("watermark", snap.secWatermarkBreaches(), false)
+        };
+        // The client line is pinned to the bottom so it is never clipped; the counter
+        // grid shrinks its row height to fit the space left above it.
+        int diagY = cy + ch - 9;
+        int gridTop = cy + bannerH + 6;
+        int cols = cw >= 330 ? 3 : 2;
+        int rows = (counters.length + cols - 1) / cols;
+        int gap = 6;
+        int cellW = (cw - gap * (cols - 1)) / cols;
+        int cellH = clamp((diagY - 6 - gridTop) / rows, 10, 14);
+        int textOffset = cellH >= 12 ? 2 : 1;
+        for (int i = 0; i < counters.length; i++) {
+            Counter k = counters[i];
+            int x = cx + (i % cols) * (cellW + gap);
+            int y = gridTop + (i / cols) * cellH;
+            String key = "gui.krypton_hybrid.dash.sec." + k.key();
+            int valueColor = k.value() == 0 ? c.textMuted() : k.severe() ? c.dangerColor() : c.warningColor();
+            String value = Fmt.count(k.value());
+            int vw = this.font.width(value);
+            boolean hover = inside(x, y, cellW, cellH);
+            float hoverAnim = anim.hover("sec." + k.key(), hover);
+            if (hoverAnim > 0.01F) {
+                Shapes.roundRect(g, x - 3, y, cellW + 6, cellH - 1, 3, UITheme.withAlpha(c.accent(), (int) (0x2C * hoverAnim)));
+            }
+            if (hover) {
+                tooltip = List.of(Component.translatable(key), Component.translatable(key + ".desc"));
+            }
+            g.drawString(this.font, Fmt.truncate(this.font, translate(key), cellW - vw - 8), x, y + textOffset, c.textSecondary(), false);
+            g.drawString(this.font, value, x + cellW - vw, y + textOffset, valueColor, false);
+        }
+
+        Shapes.hairline(g, cx, cx + cw, diagY - 4, UITheme.withAlpha(c.divider(), 0x80));
+        long req = KryptonStatsClientController.snapshotRequestCount();
+        long recv = KryptonStatsClientController.snapshotReceiveCount();
+        double success = req == 0 ? 100.0 : Math.min(100.0, recv * 100.0 / req);
+        long rtt = KryptonStatsClientController.lastRoundTripMs();
+        String diag = Component.translatable("gui.krypton_hybrid.dash.client.line",
+                rtt > 0 ? rtt + " ms" : "--",
+                Fmt.count(req), Fmt.count(recv), Fmt.percent(success)).getString();
+        g.drawString(this.font, Fmt.truncate(this.font, diag, cw), cx, diagY, c.textMuted(), false);
+    }
+
+    // ------------------------------------------------------------------
+    //  Settings
+    // ------------------------------------------------------------------
+
+    private void renderSettings(KryptonGuiGraphics g) {
+        var c = UITheme.colors();
+        int rowH = 14;
+        int y = cy;
+        g.drawString(this.font, translate("gui.krypton_hybrid.dash.settings.dashboard"), cx, y, c.textSecondary(), false);
+        y += 12;
+        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.theme",
+                new String[]{
+                        translate("gui.krypton_hybrid.dash.settings.theme.dark"),
+                        translate("gui.krypton_hybrid.dash.settings.theme.light")
+                },
+                UITheme.getMode().ordinal(),
+                i -> UITheme.setMode(UITheme.Mode.values()[i]));
+        String[] opacityLabels = new String[OPACITY_STEPS.length];
+        int opacityIndex = 0;
+        for (int i = 0; i < OPACITY_STEPS.length; i++) {
+            opacityLabels[i] = OPACITY_STEPS[i] + "%";
+            if (OPACITY_STEPS[i] <= UITheme.panelOpacityPercent()) {
+                opacityIndex = i;
             }
         }
+        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.opacity", opacityLabels, opacityIndex,
+                i -> UITheme.setPanelOpacityPercent(OPACITY_STEPS[i]));
 
-        for (MCPanel p : activePanels) p.render(g, mouseX, mouseY);
-
-        if (summaryTooltip != null && !summaryTooltip.isEmpty()) {
-            renderModernTooltip(g, summaryTooltip, mouseX + 12, mouseY + 10);
+        y += 6;
+        g.drawString(this.font, translate("gui.krypton_hybrid.dash.settings.hud"), cx, y, c.textSecondary(), false);
+        y += 12;
+        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_visible",
+                KryptonHudOverlay.isVisible(), KryptonHudOverlay::toggleVisible);
+        y = cycleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_anchor",
+                translate("gui.krypton_hybrid.dash.settings.anchor." + KryptonHudOverlay.anchor().name().toLowerCase(Locale.ROOT)),
+                KryptonHudOverlay::cycleAnchor);
+        String[] refreshLabels = new String[HUD_REFRESH_STEPS.length];
+        int refreshIndex = 0;
+        for (int i = 0; i < HUD_REFRESH_STEPS.length; i++) {
+            refreshLabels[i] = Component.translatable("gui.krypton_hybrid.dash.settings.seconds",
+                    HUD_REFRESH_STEPS[i] / 1000).getString();
+            if (HUD_REFRESH_STEPS[i] <= KryptonHudOverlay.autoRefreshIntervalMs()) {
+                refreshIndex = i;
+            }
         }
+        y = segmentedRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_refresh", refreshLabels, refreshIndex,
+                i -> KryptonHudOverlay.setAutoRefreshIntervalMs(HUD_REFRESH_STEPS[i]));
+        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_graph",
+                KryptonHudOverlay.showGraph(), KryptonHudOverlay::toggleShowGraph);
+        y = toggleRow(g, y, rowH, "gui.krypton_hybrid.dash.settings.hud_top_mod",
+                KryptonHudOverlay.showTopMod(), KryptonHudOverlay::toggleShowTopMod);
 
-        // Footer hint sits just above the action buttons.
-        int btnH = Math.max(20, lh + 10);
-        int hintY = this.height - btnH - 8 - lineH();
-        Component hint = Component.translatable(
-                "gui.krypton_hybrid.footer_hint",
-                KryptonStatsClientController.openStatsKey().getTranslatedKeyMessage());
-        String hintText = truncate(hint.getString(), this.width - 24);
-        g.drawCenteredString(this.font, hintText, this.width / 2, hintY, c.textMuted());
-
-        for (var renderable : this.renderables) renderable.render(poseStack, mouseX, mouseY, partialTick);
+        String hint = translate("gui.krypton_hybrid.dash.settings.saved_hint");
+        g.drawString(this.font, Fmt.truncate(this.font, hint, cw), cx, Math.max(y + 6, cy + ch - 10), c.textMuted(), false);
     }
+
+    /** Row background with a fading hover highlight and the setting's label; returns the hover state. */
+    private boolean settingRowBase(KryptonGuiGraphics g, int y, int h, String key) {
+        var c = UITheme.colors();
+        boolean hover = inside(cx, y, cw, h);
+        float hoverAnim = anim.hover("setting." + key, hover);
+        if (hoverAnim > 0.01F) {
+            Shapes.roundRect(g, cx, y, cw, h - 1, 4, UITheme.withAlpha(c.accent(), (int) (0x24 * hoverAnim)));
+        }
+        if (hover) {
+            tooltip = List.of(Component.translatable(key), Component.translatable(key + ".desc"));
+        }
+        g.drawString(this.font, translate(key), cx + 6, y + (h - 8) / 2, c.textPrimary(), false);
+        return hover;
+    }
+
+    /** On/off switch with a sliding knob; the whole row toggles it. */
+    private int toggleRow(KryptonGuiGraphics g, int y, int h, String key, boolean on, Runnable toggle) {
+        var c = UITheme.colors();
+        settingRowBase(g, y, h, key);
+        float t = anim.approach("toggle." + key, on ? 1F : 0F, 14F);
+        float tw = 18F;
+        float th = 10F;
+        float tx = cx + cw - tw - 5;
+        float ty = y + (h - 1 - th) / 2F;
+        int offTrack = UITheme.withAlpha(c.widgetBorderHover(), 0xA0);
+        Shapes.pill(g, tx, ty, tw, th, UITheme.lerpColor(offTrack, c.successColor(), t));
+        float knob = th - 3F;
+        Shapes.circle(g, tx + 1.5F + knob / 2 + t * (tw - th), ty + th / 2, knob / 2, 0xFFFFFFFF);
+        hits.add(new Hit(cx, y, cw, h, () -> {
+            toggle.run();
+            KryptonClientConfig.save();
+        }));
+        return y + h;
+    }
+
+    /** Value pill that advances to the next option on click. */
+    private int cycleRow(KryptonGuiGraphics g, int y, int h, String key, String value, Runnable next) {
+        var c = UITheme.colors();
+        boolean hover = settingRowBase(g, y, h, key);
+        float hoverAnim = anim.hover("cycle." + key, hover);
+        String label = value + "  ›";
+        int vw = this.font.width(label);
+        float bw = vw + 12;
+        float bh = 11F;
+        float bx = cx + cw - bw - 5;
+        float by = y + (h - 1 - bh) / 2F;
+        Shapes.pill(g, bx, by, bw, bh, UITheme.withAlpha(c.accent(), 0x38 + (int) (0x30 * hoverAnim)));
+        g.drawString(this.font, label, (int) (bx + 6), (int) (by + 2), c.accentLight(), false);
+        hits.add(new Hit(cx, y, cw, h, () -> {
+            next.run();
+            KryptonClientConfig.save();
+        }));
+        return y + h;
+    }
+
+    /** Segmented control whose selection pill slides to the chosen option. */
+    private int segmentedRow(KryptonGuiGraphics g, int y, int h, String key, String[] options, int selected,
+                             java.util.function.IntConsumer select) {
+        var c = UITheme.colors();
+        settingRowBase(g, y, h, key);
+        int pad = 6;
+        int[] widths = new int[options.length];
+        int total = 0;
+        for (int i = 0; i < options.length; i++) {
+            widths[i] = this.font.width(options[i]) + pad * 2;
+            total += widths[i];
+        }
+        float th = 11F;
+        float tx = cx + cw - total - 7;
+        float ty = y + (h - 1 - th) / 2F;
+        Shapes.pill(g, tx - 1, ty - 1, total + 2, th + 2, UITheme.withAlpha(c.widgetBorder(), 0xB0));
+
+        float ox = tx;
+        float selX = tx;
+        for (int i = 0; i < selected; i++) {
+            selX += widths[i];
+        }
+        float sx = anim.approach("segment.x." + key, selX, 18F);
+        float sw = anim.approach("segment.w." + key, widths[selected], 18F);
+        Shapes.pill(g, sx, ty, sw, th, c.accent());
+
+        for (int i = 0; i < options.length; i++) {
+            boolean hover = inside((int) ox, (int) ty, widths[i], (int) th);
+            int color = i == selected ? 0xFFFFFFFF
+                    : UITheme.lerpColor(c.textSecondary(), c.textPrimary(), anim.hover("segment." + key + "." + i, hover));
+            g.drawString(this.font, options[i], (int) ox + pad, (int) ty + 2, color, false);
+            final int index = i;
+            hits.add(new Hit((int) ox, y, widths[i], h, () -> {
+                select.accept(index);
+                KryptonClientConfig.save();
+            }));
+            ox += widths[i];
+        }
+        return y + h;
+    }
+
+    // ------------------------------------------------------------------
+    //  Input
+    // ------------------------------------------------------------------
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        // Sort chip click in Mods tab ??uses the same geometry as the renderer.
-        if (currentTab == Tab.MODS && !activePanels.isEmpty()) {
-            MCPanel panel = activePanels.get(0);
-            int cx = panel.getX() + 12;
-            int cy = panel.getContentStartY();
-            int cw = panel.getContentWidth();
-            int[] sb = sortChipBounds(cx, cy, cw);
-            if (mouseY >= sb[4] && mouseY <= sb[4] + sb[5]) {
-                if (mouseX >= sb[0] && mouseX < sb[1] - 6) { modSort = ModSort.BYTES;   return true; }
-                if (mouseX >= sb[1] && mouseX < sb[2] - 6) { modSort = ModSort.PACKETS; return true; }
-                if (mouseX >= sb[2] && mouseX < sb[3])     { modSort = ModSort.NAME;    return true; }
+        if (super.mouseClicked(mouseX, mouseY, button)) {
+            return true;
+        }
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            for (Hit hit : List.copyOf(hits)) {
+                if (hit.contains(mouseX, mouseY)) {
+                    hit.action().run();
+                    return true;
+                }
             }
         }
-        for (MCPanel p : activePanels) {
-            if (p.handleClick(mouseX, mouseY)) return true;
-        }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return false;
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
-        if (currentTab == Tab.MODS
-                && mouseX >= modListInnerX && mouseX <= modListInnerX + modListInnerW
-                && mouseY >= modListInnerY && mouseY <= modListInnerY + modListInnerH) {
-            modScroll -= (int) Math.signum(scrollY);
-            if (modScroll < 0) modScroll = 0;
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (!settingsOpen && tab == Tab.MODS
+                && mouseX >= modListX && mouseX < modListX + modListW
+                && mouseY >= modListY && mouseY < modListY + modListH) {
+            modScroll = Math.max(0, modScroll - (int) Math.signum(delta) * 3);
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, scrollY);
+        return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
-    // ??? Drawing helpers ???
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE && settingsOpen) {
+            settingsOpen = false;
+            return true;
+        }
+        if (modFilter.isFocused()) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        if (KryptonStatsClientController.openStatsKey().matches(keyCode, scanCode)) {
+            onClose();
+            return true;
+        }
+        if (keyCode >= GLFW.GLFW_KEY_1 && keyCode <= GLFW.GLFW_KEY_4) {
+            tab = Tab.values()[keyCode - GLFW.GLFW_KEY_1];
+            settingsOpen = false;
+            modScroll = 0;
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
 
-    private void drawChipStrip(KryptonGuiGraphics g, int x, int y, int w, long ageMs, double bundleHit) {
+    // ------------------------------------------------------------------
+    //  Drawing helpers
+    // ------------------------------------------------------------------
+
+    private int cardBackground() {
+        return UITheme.withAlpha(UITheme.colors().widgetBg(), 0xB0);
+    }
+
+    /** Border width that stays about one screen pixel at GUI scale 2 and never vanishes. */
+    private static float stroke() {
+        return Math.max(Shapes.pixel(), 0.5F);
+    }
+
+    private void sectionBox(KryptonGuiGraphics g, int x, int y, int w, int h, String titleKey) {
+        Shapes.roundRect(g, x, y, w, h, CARD_RADIUS, cardBackground());
+        g.drawString(this.font, translate(titleKey), x + 6, y + 5, UITheme.colors().textSecondary(), false);
+    }
+
+    private record MetricRow(String key, String value, int color) {}
+
+    /** Label/value rows from {@code y} down, stopping before a row would cross {@code maxY}. */
+    private void metricRows(KryptonGuiGraphics g, int x, int y, int w, int maxY, List<MetricRow> rows) {
         var c = UITheme.colors();
-        String[][] chips = {
-                {translate("gui.krypton_hybrid.label.algorithm"), snap.compressionAlgorithm()},
-                {translate("gui.krypton_hybrid.label.bandwidth_saving"),
-                        String.format("%.2f%%", snap.savingPercent())},
-                {translate("gui.krypton_hybrid.label.bundle_hit_rate"),
-                        String.format("%.1f%%", bundleHit)},
-                {translate("gui.krypton_hybrid.label.snapshot_age"),
-                        formatFreshness(ageMs)},
-        };
-        int[] colors = {
-                c.accentLight(),
-                qualityColor(snap.savingPercent(), 30.0, 10.0),
-                qualityColor(bundleHit, 70.0, 35.0),
-                freshnessColor(ageMs)
-        };
-
-        int cols = w < 380 ? 2 : 4;
-        int gap = 6;
-        int chipW = (w - gap * (cols - 1)) / cols;
-        int chipH = this.font.lineHeight * 2 + 8;
-        for (int i = 0; i < chips.length; i++) {
-            int cx = x + (i % cols) * (chipW + gap);
-            int cy = y + (i / cols) * (chipH + gap);
-            UITheme.fillRoundedRect(g, cx, cy, chipW, chipH, 4, c.widgetBg());
-            UITheme.drawRoundedBorder(g, cx, cy, chipW, chipH, 4, UITheme.withAlpha(c.widgetBorder(), 0xC0));
-            UITheme.fillRoundedRect(g, cx, cy, 3, chipH, 1, colors[i]);
-
-            // Two-line centered layout: title + value for better visual alignment.
-            String chipLabel = truncate(chips[i][0], chipW - 10);
-            int labelW = this.font.width(chipLabel);
-            int labelX = cx + Math.max(6, (chipW - labelW) / 2);
-            g.drawString(this.font, chipLabel, labelX, cy + 3, c.textMuted(), false);
-            String val = truncate(chips[i][1], chipW - 14);
-            int vw = this.font.width(val);
-            int valX = cx + Math.max(6, (chipW - vw) / 2);
-            g.drawString(this.font, val, valX, cy + chipH - this.font.lineHeight - 3, colors[i], false);
-
-            if (lastMouseX >= cx && lastMouseX <= cx + chipW && lastMouseY >= cy && lastMouseY <= cy + chipH) {
-                summaryTooltip = summaryTooltipForIndex(i, ageMs, bundleHit);
+        for (MetricRow row : rows) {
+            if (y + 9 > maxY) {
+                return;
             }
+            int vw = this.font.width(row.value());
+            g.drawString(this.font, Fmt.truncate(this.font, translate(row.key()), w - vw - 6), x, y, c.textMuted(), false);
+            g.drawString(this.font, row.value(), x + w - vw, y, row.color(), false);
+            y += 11;
         }
     }
 
-    private List<Component> summaryTooltipForIndex(int chipIndex, long ageMs, double bundleHit) {
-        List<Component> lines = new ArrayList<>(3);
-        switch (chipIndex) {
-            case 0 -> {
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.algorithm.title"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.algorithm.desc"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.algorithm.value", snap.compressionAlgorithm()));
-            }
-            case 1 -> {
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.saving.title"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.saving.desc"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.saving.value",
-                        String.format("%.2f%%", snap.savingPercent()),
-                        NetworkTrafficStats.formatBytes(snap.savedBytes())));
-            }
-            case 2 -> {
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.bundle_hit.title"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.bundle_hit.desc"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.bundle_hit.value",
-                        String.format("%.1f%%", bundleHit),
-                        String.format("%,d", snap.bundlesEmitted()),
-                        String.format("%,d", snap.bundleBatchesObserved())));
-            }
-            case 3 -> {
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.snapshot_age.title"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.snapshot_age.desc"));
-                lines.add(Component.translatable("gui.krypton_hybrid.tooltip.snapshot_age.value",
-                        formatFreshness(ageMs),
-                        KryptonStatsClientController.lastRoundTripMs() <= 0
-                                ? "--"
-                                : KryptonStatsClientController.lastRoundTripMs() + " ms"));
-            }
-            default -> {
-                lines.add(Component.literal("-"));
-            }
+    /** Draws a tinted pill and returns the x just after it; skipped if it would pass {@code limit}. */
+    private int pill(KryptonGuiGraphics g, int x, int textY, int limit, String text, int color, List<Component> tip) {
+        int w = this.font.width(text) + 8;
+        if (x + w > limit) {
+            return x;
         }
-        return lines;
+        Shapes.pill(g, x, textY - 2, w, 12, UITheme.withAlpha(color, 0x30));
+        g.drawString(this.font, text, x + 4, textY, color, false);
+        if (inside(x, textY - 2, w, 12)) {
+            tooltip = tip;
+        }
+        return x + w + 4;
     }
 
-    private void renderModernTooltip(KryptonGuiGraphics g, List<Component> lines, int x, int y) {
-        int maxW = 0;
-        for (Component line : lines) maxW = Math.max(maxW, this.font.width(line));
-        int pad = 6;
-        int width = maxW + pad * 2;
-        int height = lines.size() * this.font.lineHeight + pad * 2 + (lines.size() - 1);
-
-        int tx = Math.min(x, this.width - width - 6);
-        int ty = Math.min(y, this.height - height - 6);
-        UITheme.renderTooltipBackground(g, tx, ty, width, height);
-
+    private void iconButton(KryptonGuiGraphics g, int x, int y, int size, String glyph, boolean active,
+                            List<Component> tip, Runnable action) {
         var c = UITheme.colors();
-        int cy = ty + pad;
+        boolean hover = inside(x, y, size, size);
+        float hoverAnim = anim.hover("icon." + glyph, hover);
+        float activeAnim = anim.approach("icon.active." + glyph, active ? 1F : 0F, 14F);
+        // Close tints red on hover; the others use the accent.
+        int tint = "✕".equals(glyph) ? c.dangerColor() : c.accent();
+        int alpha = (int) Math.max(0x50 * hoverAnim, 0x34 * activeAnim);
+        if (alpha > 0) {
+            Shapes.circle(g, x + size / 2F, y + size / 2F, size / 2F, UITheme.withAlpha(tint, alpha));
+        }
+        int gw = this.font.width(glyph);
+        int glyphColor = UITheme.lerpColor(c.textSecondary(), c.textPrimary(), Math.max(hoverAnim, activeAnim));
+        g.drawString(this.font, glyph, x + (size - gw + 1) / 2, y + (size - 8) / 2, glyphColor, false);
+        hits.add(new Hit(x, y, size, size, action));
+        if (hover) {
+            tooltip = tip;
+        }
+    }
+
+    private void drawCentered(KryptonGuiGraphics g, String text, int centerX, int y, int color) {
+        g.drawString(this.font, text, centerX - this.font.width(text) / 2, y, color, false);
+    }
+
+    private void renderTooltip(KryptonGuiGraphics g, List<Component> lines, int x, int y) {
+        int wrapW = 200;
+        List<FormattedCharSequence> wrapped = new ArrayList<>();
+        int titleLines = 0;
         for (int i = 0; i < lines.size(); i++) {
-            int color = (i == 0) ? c.accentLight() : (i == lines.size() - 1 ? c.textPrimary() : c.textSecondary());
-            g.drawString(this.font, lines.get(i), tx + pad, cy, color, false);
-            cy += this.font.lineHeight + 1;
+            List<FormattedCharSequence> split = this.font.split(lines.get(i), wrapW);
+            wrapped.addAll(split);
+            if (i == 0) {
+                titleLines = split.size();
+            }
         }
-    }
-
-    private int drawSavingBar(KryptonGuiGraphics g, int x, int y, int w, double percent) {
-        var c = UITheme.colors();
-        int barH = 10;
-        UITheme.fillRoundedRect(g, x, y, w, barH, 3, c.widgetBg());
-        double clamped = Math.max(0.0, Math.min(100.0, percent));
-        int fillW = (int) (w * (clamped / 100.0));
-        int color = qualityColor(percent, 30.0, 10.0);
-        if (fillW > 1) {
-            UITheme.fillRoundedRect(g, x, y, fillW, barH, 3, color);
-            UITheme.fillRoundedRect(g, x, y, fillW, barH / 2, 3, UITheme.brighten(color, 0.25f));
+        int maxW = 0;
+        for (FormattedCharSequence line : wrapped) {
+            maxW = Math.max(maxW, this.font.width(line));
         }
-        UITheme.drawRoundedBorder(g, x, y, w, barH, 3, UITheme.withAlpha(c.widgetBorder(), 0x80));
-        String label = Component.translatable("gui.krypton_hybrid.label.bar_saved",
-                String.format("%.2f%%", percent)).getString();
-        int lw = this.font.width(label);
-        g.drawString(this.font, label, x + w - lw, y + barH + 2, c.textSecondary(), false);
-        return y + barH + lineH() + 2;
-    }
-
-    private int drawMetric(KryptonGuiGraphics g, int x, int y, int width, String labelKey, String value) {
-        return drawMetric(g, x, y, width, labelKey, value, UITheme.colors().textPrimary());
-    }
-
-    private int drawMetric(KryptonGuiGraphics g, int x, int y, int width, String labelKey, String value, int valueColor) {
+        int pad = 5;
+        int w = maxW + pad * 2;
+        int h = wrapped.size() * 10 + pad * 2 - 1;
+        int tx = Math.max(2, Math.min(x, this.width - w - 4));
+        int ty = Math.max(2, Math.min(y, this.height - h - 4));
         var c = UITheme.colors();
-        String label = Component.translatable(labelKey).getString();
-        int labelW = this.font.width(label);
-        int valueW = this.font.width(value);
-        int gap = 8;
-        // If label + value collide, wrap value to a second line right-aligned.
-        if (labelW + gap + valueW > width) {
-            g.drawString(this.font, truncate(label, width), x, y, c.textSecondary(), false);
-            String safe = truncate(value, width - 2);
-            int sw = this.font.width(safe);
-            g.drawString(this.font, safe, x + width - sw, y + lineH(), valueColor, false);
-            return y + lineH() * 2;
+        g.pose().pushPose();
+        g.pose().translate(0, 0, 400);
+        Shapes.roundRect(g, tx, ty, w, h, 5, UITheme.withAlpha(c.headerBg(), 0xF2));
+        Shapes.roundRectStroke(g, tx, ty, w, h, 5, stroke(), UITheme.withAlpha(c.widgetBorderHover(), 0xA0));
+        for (int i = 0; i < wrapped.size(); i++) {
+            int color = i < titleLines ? c.accentLight() : c.textSecondary();
+            g.drawString(this.font, wrapped.get(i), tx + pad, ty + pad + i * 10, color);
         }
-        g.drawString(this.font, label, x, y, c.textSecondary(), false);
-        String safe = truncate(value, Math.max(40, width - labelW - gap));
-        int sw = this.font.width(safe);
-        g.drawString(this.font, safe, x + width - sw, y, valueColor, false);
-        return y + lineH();
+        g.pose().popPose();
     }
 
-    // ??? Utility ???
-
-    /** Approximate panel header height (matches MCPanel TITLE_BAR_HEIGHT + padding). */
-    private static int MCPanelHeader() { return 24 + 12; }
-
-    private static String translate(String key) { return Component.translatable(key).getString(); }
-
-    private static String tabKey(Tab t) {
-        return switch (t) {
-            case OVERVIEW -> "gui.krypton_hybrid.tab.overview";
-            case NETWORK -> "gui.krypton_hybrid.tab.network";
-            case COMPRESSION -> "gui.krypton_hybrid.tab.compression";
-            case MODS -> "gui.krypton_hybrid.tab.mods";
-            case INSIGHTS -> "gui.krypton_hybrid.tab.insights";
-        };
+    private boolean inside(int x, int y, int w, int h) {
+        return mouseX >= x && mouseX < x + w && mouseY >= y && mouseY < y + h;
     }
 
-    private static Component themeLabel() {
-        return Component.translatable(UITheme.getMode() == UITheme.Mode.DARK
-                ? "gui.krypton_hybrid.theme.dark"
-                : "gui.krypton_hybrid.theme.light");
-    }
-
-    private static String formatDuration(long seconds) {
-        return Component.translatable("gui.krypton_hybrid.value.seconds", String.format("%,d", seconds)).getString();
-    }
-
-    private static String formatBytesRate(long total, long perSecond) {
-        return NetworkTrafficStats.formatBytes(total) + " (" + NetworkTrafficStats.formatBytes(perSecond) + "/s)";
-    }
-
-    private static int freshnessColor(long ageMs) {
+    private static int qualityColor(double value, double good, double warn) {
         var c = UITheme.colors();
-        if (ageMs <= 2000L) return c.successColor();
-        if (ageMs <= 6000L) return c.warningColor();
+        if (value >= good) return c.successColor();
+        if (value >= warn) return c.warningColor();
         return c.dangerColor();
     }
 
-    private static int qualityColor(double value, double goodThreshold, double warnThreshold) {
-        var c = UITheme.colors();
-        if (value >= goodThreshold) return c.successColor();
-        if (value >= warnThreshold) return c.warningColor();
-        return c.dangerColor();
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
-    private static int inverseQualityColor(double value, double goodThreshold, double warnThreshold) {
-        var c = UITheme.colors();
-        if (value <= goodThreshold) return c.successColor();
-        if (value <= warnThreshold) return c.warningColor();
-        return c.dangerColor();
-    }
-
-    private static int ratioColor(double ratio) {
-        // Lower ratio is better (wire/orig).
-        return inverseQualityColor(ratio, 0.75, 0.90);
-    }
-
-    private static int rttColor(long rttMs) {
-        if (rttMs <= 0) return UITheme.colors().textSecondary();
-        return inverseQualityColor(rttMs, 120.0, 250.0);
-    }
-
-    private static String formatFreshness(long ageMs) {
-        if (ageMs == Long.MAX_VALUE) return "--";
-        if (ageMs < 1000L) return ageMs + " ms";
-        return String.format("%.1f s", ageMs / 1000.0);
-    }
-
-    private String truncate(String text, int maxWidth) {
-        if (text == null || text.isEmpty()) return "-";
-        if (this.font.width(text) <= maxWidth) return text;
-        String ell = "...";
-        int end = text.length();
-        while (end > 1 && this.font.width(text.substring(0, end) + ell) > maxWidth) end--;
-        return text.substring(0, Math.max(1, end)) + ell;
+    /** Static labels are looked up once; init() clears the cache (it runs again on language change). */
+    private String translate(String key) {
+        String cached = translations.get(key);
+        if (cached == null) {
+            cached = Component.translatable(key).getString();
+            translations.put(key, cached);
+        }
+        return cached;
     }
 }
-

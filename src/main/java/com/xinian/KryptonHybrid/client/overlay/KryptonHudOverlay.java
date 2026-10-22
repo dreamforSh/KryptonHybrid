@@ -1,42 +1,49 @@
 package com.xinian.KryptonHybrid.client.overlay;
 
 import com.xinian.KryptonHybrid.client.KryptonStatsClientController;
+import com.xinian.KryptonHybrid.client.KryptonStatsHistory;
 import com.xinian.KryptonHybrid.client.compat.KryptonGuiGraphics;
+import com.xinian.KryptonHybrid.client.ui.Charts;
+import com.xinian.KryptonHybrid.client.ui.Fmt;
+import com.xinian.KryptonHybrid.client.ui.Shapes;
 import com.xinian.KryptonHybrid.client.ui.UITheme;
-import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.client.gui.overlay.ForgeGui;
 import net.minecraftforge.client.gui.overlay.IGuiOverlay;
 
-import java.util.List;
+import java.util.Locale;
 
 /**
- * MemoryCatcher-style in-game HUD layer for Krypton Hybrid.
- * Renders a compact rounded panel with algorithm, savings bar, throughput, and
- * the top traffic-consuming mod. Spacing follows {@code font.lineHeight} so the
- * overlay scales correctly with the in-game GUI scale.
+ * Compact translucent traffic card drawn over the game.
+ *
+ * <p>Shows this connection's codec and the server-wide bandwidth saving, live
+ * outbound/inbound rates (from {@link KryptonStatsHistory}, falling back to
+ * lifetime averages marked with {@code ~} until two snapshots have arrived) with
+ * optional sparklines, and optionally the top mod by traffic.</p>
  */
 public final class KryptonHudOverlay implements IGuiOverlay {
     public static final KryptonHudOverlay INSTANCE = new KryptonHudOverlay();
 
     public enum HudAnchor { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
-    private static final int BAR_WIDTH = 130;
-    private static final int BAR_HEIGHT = 6;
-    private static final int PADDING = 6;
-    private static final int CORNER_RADIUS = 4;
+    private static final int PAD = 5;
+    private static final int LINE = 11;
+    private static final int TEXT_W = 86;
+    private static final int GRAPH_W = 52;
 
+    private static boolean visible = false;
     private static long autoRefreshIntervalMs = 2000L;
     private static long lastAutoRefreshMs = 0L;
     private static HudAnchor anchor = HudAnchor.TOP_RIGHT;
     private static boolean showTopMod = true;
+    private static boolean showGraph = true;
 
     private KryptonHudOverlay() {}
 
-    private static boolean visible = false;
     public static boolean isVisible() { return visible; }
     public static void setVisible(boolean v) { visible = v; }
     public static void toggleVisible() { visible = !visible; }
@@ -55,126 +62,132 @@ public final class KryptonHudOverlay implements IGuiOverlay {
     public static boolean showTopMod() { return showTopMod; }
     public static void setShowTopMod(boolean value) { showTopMod = value; }
     public static void toggleShowTopMod() { showTopMod = !showTopMod; }
+    public static boolean showGraph() { return showGraph; }
+    public static void setShowGraph(boolean value) { showGraph = value; }
+    public static void toggleShowGraph() { showGraph = !showGraph; }
 
     @Override
     public void render(ForgeGui gui, PoseStack poseStack, float partialTick, int screenWidth, int screenHeight) {
-        KryptonGuiGraphics graphics = new KryptonGuiGraphics(poseStack);
         if (!visible) return;
         Minecraft mc = Minecraft.getInstance();
-        if (mc.screen != null || mc.player == null) return;
+        if (mc.screen != null || mc.player == null || mc.options.hideGui) return;
 
-        StatsSnapshotPayload snap = KryptonStatsClientController.latestSnapshot();
         long now = System.currentTimeMillis();
         if (now - lastAutoRefreshMs > autoRefreshIntervalMs) {
             lastAutoRefreshMs = now;
             KryptonStatsClientController.requestFreshSnapshot();
         }
+        StatsSnapshotPayload snap = KryptonStatsClientController.latestSnapshot();
         if (snap == null) return;
 
+        Font font = mc.font;
         var c = UITheme.colors();
-        int lineH = mc.font.lineHeight + 2;
+        int width = PAD * 2 + TEXT_W + (showGraph ? GRAPH_W + 4 : 0);
+        int innerW = width - PAD * 2;
+        if (now - codecCheckedAtMs > 500L) {
+            codecCheckedAtMs = now;
+            codec = KryptonStatsClientController.currentCodec();
+        }
+        Lines text = lines(snap, font, innerW);
 
-        // Compute number of lines: head + bar + sent + recv + saved + (optional top mod)
-        boolean hasTop = showTopMod && !snap.topMods().isEmpty();
-        int lines = 5 + (hasTop ? 1 : 0);
-        int panelHeight = PADDING * 2 + lineH + BAR_HEIGHT + 4 + (lines - 2) * lineH;
-        int panelWidth = BAR_WIDTH + PADDING * 2 + 4;
-
-        int sw = graphics.guiWidth();
-        int sh = graphics.guiHeight();
+        int lines = 3 + (text.topName() != null ? 1 : 0);
+        int height = PAD * 2 + lines * LINE - 2;
         int margin = 4;
-        int panelX;
-        int panelY;
-        switch (anchor) {
-            case TOP_LEFT -> {
-                panelX = margin;
-                panelY = margin;
-            }
-            case TOP_RIGHT -> {
-                panelX = sw - panelWidth - margin;
-                panelY = margin;
-            }
-            case BOTTOM_LEFT -> {
-                panelX = margin;
-                panelY = sh - panelHeight - margin;
-            }
-            case BOTTOM_RIGHT -> {
-                panelX = sw - panelWidth - margin;
-                panelY = sh - panelHeight - margin;
-            }
-            default -> {
-                panelX = sw - panelWidth - margin;
-                panelY = margin;
-            }
+        int x = switch (anchor) {
+            case TOP_LEFT, BOTTOM_LEFT -> margin;
+            case TOP_RIGHT, BOTTOM_RIGHT -> screenWidth - width - margin;
+        };
+        int y = switch (anchor) {
+            case TOP_LEFT, TOP_RIGHT -> margin;
+            case BOTTOM_LEFT, BOTTOM_RIGHT -> screenHeight - height - margin;
+        };
+
+        KryptonGuiGraphics g = new KryptonGuiGraphics(poseStack);
+        g.beginBatch();
+        Shapes.roundRect(g, x, y, width, height, 6, UITheme.withAlpha(c.panelBg(), 0xB8));
+        Shapes.roundRectStroke(g, x, y, width, height, 6, Math.max(Shapes.pixel(), 0.5F),
+                UITheme.withAlpha(c.widgetBorder(), 0x70));
+
+        int tx = x + PAD;
+        int ty = y + PAD;
+        long dataVersion = KryptonStatsHistory.version();
+
+        g.drawString(font, text.codec(), tx, ty, c.accentLight(), false);
+        g.drawString(font, text.saving(), tx + innerW - text.savingWidth(), ty, savingColor(snap.savingPercent(), c), false);
+
+        ty += LINE;
+        g.drawString(font, text.out(), tx, ty, c.textPrimary(), false);
+        if (showGraph) {
+            Charts.sparkline(g, "hud.out", dataVersion, x + width - PAD - GRAPH_W, ty, GRAPH_W, 8,
+                    KryptonStatsHistory.series(KryptonStatsHistory.Field.OUT_WIRE), c.accent());
         }
 
-        UITheme.fillRoundedRect(graphics, panelX, panelY, panelWidth, panelHeight,
-                CORNER_RADIUS, UITheme.withAlpha(c.panelBg(), 0xCC));
-        UITheme.drawRoundedBorder(graphics, panelX, panelY, panelWidth, panelHeight,
-                CORNER_RADIUS, UITheme.withAlpha(c.widgetBorder(), 0x80));
-
-        int x = panelX + PADDING;
-        int y = panelY + PADDING;
-
-        String head = Component.translatable("hud.krypton_hybrid.header",
-                snap.compressionAlgorithm(),
-                String.format("%.1f%%", snap.savingPercent())).getString();
-        int headColor = qualityColor(snap.savingPercent(), c);
-        graphics.drawString(mc.font, head, x, y, headColor, false);
-
-        y += lineH;
-        double clamped = Math.max(0.0, Math.min(100.0, snap.savingPercent()));
-        int fillW = (int) (BAR_WIDTH * (clamped / 100.0));
-        UITheme.fillRoundedRect(graphics, x, y, BAR_WIDTH, BAR_HEIGHT, 2, c.widgetBg());
-        if (fillW > 1) {
-            UITheme.fillRoundedRect(graphics, x, y, fillW, BAR_HEIGHT, 2, headColor);
-            UITheme.fillRoundedRect(graphics, x, y, fillW, BAR_HEIGHT / 2, 2,
-                    UITheme.brighten(headColor, 0.25f));
+        ty += LINE;
+        g.drawString(font, text.in(), tx, ty, c.textPrimary(), false);
+        if (showGraph) {
+            Charts.sparkline(g, "hud.in", dataVersion, x + width - PAD - GRAPH_W, ty, GRAPH_W, 8,
+                    KryptonStatsHistory.series(KryptonStatsHistory.Field.IN), c.accentTertiary());
         }
-        UITheme.drawRoundedBorder(graphics, x, y, BAR_WIDTH, BAR_HEIGHT, 2,
-                UITheme.withAlpha(c.widgetBorder(), 0x60));
 
-        y += BAR_HEIGHT + 3;
-        graphics.drawString(mc.font,
-                Component.translatable("hud.krypton_hybrid.tx", NetworkTrafficStats.formatBytes(snap.wireBytesPerSecond())).getString(),
-                x, y, c.textSecondary(), false);
-        y += lineH;
-        graphics.drawString(mc.font,
-                Component.translatable("hud.krypton_hybrid.rx", NetworkTrafficStats.formatBytes(snap.receivedBytesPerSecond())).getString(),
-                x, y, c.textSecondary(), false);
-        y += lineH;
-        graphics.drawString(mc.font,
-                Component.translatable("hud.krypton_hybrid.saved", NetworkTrafficStats.formatBytes(snap.savedBytes())).getString(),
-                x, y, c.textMuted(), false);
-
-        if (hasTop) {
-            y += lineH;
-            // Pick mod with largest bytes (topMods is already sorted server-side, but be safe)
-            List<StatsSnapshotPayload.ModEntry> mods = snap.topMods();
-            StatsSnapshotPayload.ModEntry top = mods.get(0);
-            for (StatsSnapshotPayload.ModEntry e : mods)
-                if (e.bytes() > top.bytes()) top = e;
-            String right = NetworkTrafficStats.formatBytes(top.bytes());
-            int rw = mc.font.width(right);
-            // Reserve gutter for the right-aligned size and a small spacer.
-            int leftMaxW = panelWidth - PADDING * 2 - rw - 6;
-            String left = Component.translatable("hud.krypton_hybrid.top_mod",
-                    truncate(mc.font, top.modId(), leftMaxW - mc.font.width("..."))).getString();
-            graphics.drawString(mc.font, left, x, y, c.accentLight(), false);
-            graphics.drawString(mc.font, right, panelX + panelWidth - PADDING - rw, y, c.textSecondary(), false);
+        if (text.topName() != null) {
+            ty += LINE;
+            g.drawString(font, text.topName(), tx, ty, c.textSecondary(), false);
+            g.drawString(font, text.topShare(), tx + innerW - text.topShareWidth(), ty, c.textMuted(), false);
         }
+        g.endBatch();
     }
 
-    private static String truncate(net.minecraft.client.gui.Font font, String text, int maxWidth) {
-        if (text == null || text.isEmpty()) return "-";
-        if (font.width(text) <= maxWidth) return text;
-        String ell = "...";
-        int end = text.length();
-        while (end > 1 && font.width(text.substring(0, end) + ell) > maxWidth) end--;
-        return text.substring(0, Math.max(1, end)) + ell;
+    /** The HUD's strings, rebuilt only when the data or layout they show changes. */
+    private record Lines(String codec, String saving, int savingWidth, String out, String in,
+                         String topName, String topShare, int topShareWidth) {}
+
+    private record LinesKey(long dataVersion, KryptonStatsClientController.Codec codec,
+                            boolean showTopMod, int innerWidth) {}
+
+    private static KryptonStatsClientController.Codec codec = KryptonStatsClientController.Codec.NONE;
+    private static long codecCheckedAtMs;
+    /** Compared by identity: a new snapshot object means new data. */
+    private static StatsSnapshotPayload linesSnapshot;
+    private static LinesKey linesKey;
+    private static Lines lines;
+
+    private static Lines lines(StatsSnapshotPayload snap, Font font, int innerW) {
+        LinesKey key = new LinesKey(KryptonStatsHistory.version(), codec, showTopMod, innerW);
+        if (snap == linesSnapshot && key.equals(linesKey)) {
+            return lines;
+        }
+        linesSnapshot = snap;
+        KryptonStatsHistory.Sample live = KryptonStatsHistory.latest();
+        String codecText = Component.translatable("gui.krypton_hybrid.dash.codec."
+                + codec.name().toLowerCase(Locale.ROOT)).getString();
+        String saving = Component.translatable("hud.krypton_hybrid.saving", Fmt.percent(snap.savingPercent())).getString();
+        String out = live != null ? Fmt.rate(live.outWireBps()) : "~" + Fmt.rate(snap.wireBytesPerSecond());
+        String in = live != null ? Fmt.rate(live.inBps()) : "~" + Fmt.rate(snap.receivedBytesPerSecond());
+
+        String topName = null;
+        String topShare = null;
+        int topShareWidth = 0;
+        if (showTopMod) {
+            StatsSnapshotPayload.ModEntry top = null;
+            for (StatsSnapshotPayload.ModEntry e : snap.topMods()) {
+                if (top == null || e.bytes() > top.bytes()) top = e;
+            }
+            if (top != null) {
+                topShare = Fmt.percent(top.bytes() * 100.0 / Math.max(1L, snap.totalTrackedModBytes()));
+                topShareWidth = font.width(topShare);
+                String name = Fmt.truncate(font, top.modId(), innerW - topShareWidth - 14);
+                topName = Component.translatable("hud.krypton_hybrid.top_mod", name).getString();
+            }
+        }
+        lines = new Lines(codecText, saving, font.width(saving),
+                Component.translatable("hud.krypton_hybrid.out", out).getString(),
+                Component.translatable("hud.krypton_hybrid.in", in).getString(),
+                topName, topShare, topShareWidth);
+        linesKey = key;
+        return lines;
     }
 
-    private static int qualityColor(double value, UITheme.ColorPalette c) {
+    private static int savingColor(double value, UITheme.ColorPalette c) {
         if (value >= 30.0) return c.successColor();
         if (value >= 10.0) return c.warningColor();
         return c.dangerColor();

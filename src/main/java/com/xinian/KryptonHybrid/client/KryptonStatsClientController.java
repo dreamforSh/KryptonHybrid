@@ -3,12 +3,16 @@ package com.xinian.KryptonHybrid.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay;
 import com.xinian.KryptonHybrid.client.screen.KryptonStatsScreen;
+import com.xinian.KryptonHybrid.client.ui.GeometryCache;
 import com.xinian.KryptonHybrid.KryptonHybrid;
+import com.xinian.KryptonHybrid.shared.network.compression.ZstdCompressEncoder;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotRequestPayload;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
@@ -16,6 +20,9 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -24,9 +31,10 @@ import org.lwjgl.glfw.GLFW;
  * <p>Responsibilities:</p>
  * <ul>
  *   <li>Registers Controls-menu key bindings (open dashboard, toggle HUD)</li>
- *   <li>Caches the latest server-pushed {@link StatsSnapshotPayload}</li>
+ *   <li>Caches the latest server-pushed {@link StatsSnapshotPayload} and feeds
+ *       {@link KryptonStatsHistory}</li>
  *   <li>Opens the dashboard immediately from cache, then requests a fresh snapshot</li>
- *   <li>Registers the in-game HUD overlay layer</li>
+ *   <li>Registers the in-game HUD overlay layer and the client config</li>
  * </ul>
  */
 public final class KryptonStatsClientController {
@@ -47,6 +55,9 @@ public final class KryptonStatsClientController {
             "key.categories.krypton_hybrid"
     );
 
+    /** Which compression the local connection is using, for the dashboard header. */
+    public enum Codec { ZSTD, ZLIB, NONE, LOCAL }
+
     private static StatsSnapshotPayload latestSnapshot;
     private static long latestSnapshotReceivedAtMs;
     private static long lastRequestAtMs;
@@ -54,14 +65,32 @@ public final class KryptonStatsClientController {
     private static long lastRoundTripMs;
     private static long snapshotRequestCount;
     private static long snapshotReceiveCount;
+    /** Set when the player asked for the dashboard before any snapshot arrived. */
+    private static boolean pendingOpen;
 
     private KryptonStatsClientController() {}
 
     public static void init(IEventBus modEventBus) {
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, KryptonClientConfig.SPEC);
+        modEventBus.addListener(KryptonStatsClientController::onConfigLoad);
+        modEventBus.addListener(KryptonStatsClientController::onConfigReload);
         modEventBus.addListener(KryptonStatsClientController::onRegisterKeyMappings);
         modEventBus.addListener(KryptonStatsClientController::onRegisterGuiLayers);
         MinecraftForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientTick);
         MinecraftForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientLoggedIn);
+        MinecraftForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientLoggedOut);
+    }
+
+    private static void onConfigLoad(ModConfigEvent.Loading event) {
+        if (event.getConfig().getSpec() == KryptonClientConfig.SPEC) {
+            KryptonClientConfig.apply();
+        }
+    }
+
+    private static void onConfigReload(ModConfigEvent.Reloading event) {
+        if (event.getConfig().getSpec() == KryptonClientConfig.SPEC) {
+            KryptonClientConfig.apply();
+        }
     }
 
     /**
@@ -72,6 +101,20 @@ public final class KryptonStatsClientController {
      */
     private static void onClientLoggedIn(ClientPlayerNetworkEvent.LoggingIn event) {
         KryptonHybrid.NETWORK.sendToServer(KryptonHelloPayload.current());
+    }
+
+    /** Stats belong to the server we left; never show them for the next one. */
+    private static void onClientLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        latestSnapshot = null;
+        latestSnapshotReceivedAtMs = 0L;
+        lastRequestAtMs = 0L;
+        lastRequestSentAtMs = 0L;
+        lastRoundTripMs = 0L;
+        snapshotRequestCount = 0L;
+        snapshotReceiveCount = 0L;
+        pendingOpen = false;
+        KryptonStatsHistory.clear();
+        GeometryCache.release("");
     }
 
     private static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
@@ -96,6 +139,7 @@ public final class KryptonStatsClientController {
         }
         while (TOGGLE_HUD_KEY.consumeClick()) {
             KryptonHudOverlay.toggleVisible();
+            KryptonClientConfig.save();
             minecraft.gui.setOverlayMessage(
                     Component.translatable(KryptonHudOverlay.isVisible()
                             ? "gui.krypton_hybrid.hud.on"
@@ -105,21 +149,21 @@ public final class KryptonStatsClientController {
     }
 
     public static void receiveSnapshot(StatsSnapshotPayload payload) {
+        long now = System.currentTimeMillis();
         latestSnapshot = payload;
-        latestSnapshotReceivedAtMs = System.currentTimeMillis();
+        latestSnapshotReceivedAtMs = now;
         snapshotReceiveCount++;
-        if (lastRequestSentAtMs > 0L && latestSnapshotReceivedAtMs >= lastRequestSentAtMs) {
-            lastRoundTripMs = latestSnapshotReceivedAtMs - lastRequestSentAtMs;
+        if (lastRequestSentAtMs > 0L && now >= lastRequestSentAtMs) {
+            lastRoundTripMs = now - lastRequestSentAtMs;
         }
+        KryptonStatsHistory.record(payload, now);
 
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.screen instanceof KryptonStatsScreen screen) {
-            screen.updateSnapshot(payload);
-        } else if (!KryptonHudOverlay.isVisible()) {
-            // Preserve legacy behaviour: server-pushed snapshot pops the dashboard
-            // open. When the HUD is on it auto-refreshes every 2s; suppress
-            // auto-open so the GUI does not steal focus.
-            open(payload);
+        if (pendingOpen) {
+            pendingOpen = false;
+            if (minecraft.screen == null) {
+                open();
+            }
         }
     }
 
@@ -136,15 +180,32 @@ public final class KryptonStatsClientController {
                 : Math.max(0L, System.currentTimeMillis() - latestSnapshotReceivedAtMs);
     }
 
+    /** Compression actually installed on this client's connection (after negotiation). */
+    public static Codec currentCodec() {
+        ClientPacketListener listener = Minecraft.getInstance().getConnection();
+        if (listener == null) {
+            return Codec.NONE;
+        }
+        Connection connection = listener.getConnection();
+        if (connection.isMemoryConnection()) {
+            return Codec.LOCAL;
+        }
+        Object compressor = connection.channel().pipeline().get("compress");
+        if (compressor == null) {
+            return Codec.NONE;
+        }
+        return compressor instanceof ZstdCompressEncoder ? Codec.ZSTD : Codec.ZLIB;
+    }
+
     public static void openOrRequestLatest() {
         Minecraft minecraft = Minecraft.getInstance();
         if (latestSnapshot != null) {
-            open(latestSnapshot);
-        }
-        requestFreshSnapshot();
-        if (latestSnapshot == null) {
+            open();
+        } else {
+            pendingOpen = true;
             minecraft.gui.setOverlayMessage(Component.translatable("gui.krypton_hybrid.hint.requesting"), false);
         }
+        requestFreshSnapshot();
     }
 
     public static void requestFreshSnapshot() {
@@ -160,9 +221,7 @@ public final class KryptonStatsClientController {
         KryptonHybrid.NETWORK.sendToServer(StatsSnapshotRequestPayload.INSTANCE);
     }
 
-    public static void open(StatsSnapshotPayload payload) {
-        Minecraft minecraft = Minecraft.getInstance();
-        minecraft.setScreen(new KryptonStatsScreen(payload));
+    public static void open() {
+        Minecraft.getInstance().setScreen(new KryptonStatsScreen());
     }
 }
-

@@ -130,6 +130,7 @@ public final class KryptonStatsCommand {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         StatsSnapshotPayload snap = StatsSnapshotPayload.current();
         KryptonHybrid.sendStatsSnapshot(player, snap);
+        KryptonHybrid.openDashboard(player);
         return 1;
     }
 
