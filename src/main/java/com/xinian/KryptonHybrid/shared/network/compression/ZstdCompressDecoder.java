@@ -79,14 +79,15 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
                     ? HARD_MAXIMUM_UNCOMPRESSED_SIZE
                     : VANILLA_MAXIMUM_UNCOMPRESSED_SIZE;
 
+    /** Standard frames (no dictionary). */
     private final ZstdDecompressCtx decompressor;
+    /** Magicless dictionary frames, or {@code null} without a dictionary. */
+    private final ZstdDecompressCtx dictDecompressor;
     private final boolean validate;
     private int threshold;
 
-    /** Grow-only scratch buffer for compressed input (heap-fallback path only). */
-    private byte[] scratchIn = new byte[8192];
-    /** Grow-only scratch buffer for decompressed output (heap-fallback path only). */
-    private byte[] scratchOut = new byte[8192];
+    /** Grow-only scratch buffer for compressed input without a backing array (allocated on first use). */
+    private byte[] scratchIn;
 
     /**
      * Creates a new decoder.
@@ -94,13 +95,18 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
      * @param threshold    the compression threshold in bytes (used for validation)
      * @param validate     when {@code true}, incoming packets are checked against the
      *                     threshold and the hard size cap
-     * @param decompressor a per-channel {@link ZstdDecompressCtx} (see
+     * @param decompressor a per-channel {@link ZstdDecompressCtx} for standard frames (see
      *                     {@link ZstdUtil#createDecompressor()})
+     * @param dictDecompressor a per-channel context for magicless dictionary frames (see
+     *                     {@link ZstdUtil#createDictionaryDecompressor}), or {@code null}
+     *                     when the connection has no dictionary
      */
-    public ZstdCompressDecoder(int threshold, boolean validate, ZstdDecompressCtx decompressor) {
+    public ZstdCompressDecoder(int threshold, boolean validate, ZstdDecompressCtx decompressor,
+                               ZstdDecompressCtx dictDecompressor) {
         this.threshold = threshold;
         this.validate = validate;
         this.decompressor = decompressor;
+        this.dictDecompressor = dictDecompressor;
     }
 
     @Override
@@ -151,6 +157,12 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
             DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
         }
 
+        // With a dictionary, frames compressed with it are magicless and the rest (large
+        // packets) are standard frames; the magic number tells them apart.
+        ZstdDecompressCtx zstd = dictDecompressor != null && !ZstdUtil.isStandardFrame(in)
+                ? dictDecompressor
+                : decompressor;
+
         // --- Fast path: direct input ??direct output, zero-copy ---
         if (in.isDirect() && in.nioBufferCount() == 1) {
             ByteBuf result = ctx.alloc().directBuffer(claimedUncompressedSize);
@@ -160,7 +172,7 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
 
                 int actualDecompressed;
                 try {
-                    actualDecompressed = decompressor.decompressDirectByteBuffer(
+                    actualDecompressed = zstd.decompressDirectByteBuffer(
                             nioOut, 0, claimedUncompressedSize,
                             nioIn,  0, compressedSize);
                 } catch (ZstdException e) {
@@ -183,33 +195,47 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
             return;
         }
 
-        // --- Heap fallback: reusable scratch buffers ---
-        if (scratchIn.length < compressedSize) {
-            scratchIn = new byte[compressedSize];
-        }
-        in.readBytes(scratchIn, 0, compressedSize);
-
-        if (scratchOut.length < claimedUncompressedSize) {
-            scratchOut = new byte[claimedUncompressedSize];
-        }
-
-        int actualDecompressed;
-        try {
-            actualDecompressed = decompressor.decompressByteArray(
-                    scratchOut, 0, claimedUncompressedSize,
-                    scratchIn, 0, compressedSize);
-        } catch (ZstdException e) {
-            throw new Exception("Zstd decompression failed: " + e.getMessage(), e);
+        // --- Heap input (e.g. the client's vanilla cipher output): decompress straight
+        // from its backing array, or one scratch copy, into the direct output buffer ---
+        byte[] src;
+        int srcOffset;
+        if (in.hasArray()) {
+            src = in.array();
+            srcOffset = in.arrayOffset() + in.readerIndex();
+        } else {
+            if (scratchIn == null || scratchIn.length < compressedSize) {
+                scratchIn = new byte[Math.max(8192, compressedSize)];
+            }
+            in.getBytes(in.readerIndex(), scratchIn, 0, compressedSize);
+            src = scratchIn;
+            srcOffset = 0;
         }
 
-        checkState(actualDecompressed == claimedUncompressedSize,
-                "Zstd decompressed size %s does not match claimed size %s",
-                actualDecompressed, claimedUncompressedSize);
-
-        // Write from scratch to a direct buffer for downstream pipeline stages
         ByteBuf result = ctx.alloc().directBuffer(claimedUncompressedSize);
-        result.writeBytes(scratchOut, 0, claimedUncompressedSize);
-        out.add(result);
+        try {
+            ByteBuffer nioOut = result.nioBuffer(0, claimedUncompressedSize);
+            int actualDecompressed;
+            try {
+                actualDecompressed = zstd.decompressByteArrayToDirectByteBuffer(
+                        nioOut, 0, claimedUncompressedSize,
+                        src, srcOffset, compressedSize);
+            } catch (ZstdException e) {
+                throw new Exception("Zstd decompression failed: " + e.getMessage(), e);
+            }
+
+            checkState(actualDecompressed == claimedUncompressedSize,
+                    "Zstd decompressed size %s does not match claimed size %s",
+                    actualDecompressed, claimedUncompressedSize);
+
+            in.skipBytes(compressedSize);
+            result.writerIndex(claimedUncompressedSize);
+            out.add(result);
+            result = null; // ownership transferred to out
+        } finally {
+            if (result != null) {
+                result.release(); // cleanup on exception
+            }
+        }
     }
 
     /**
@@ -218,6 +244,9 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
         decompressor.close();
+        if (dictDecompressor != null) {
+            dictDecompressor.close();
+        }
         super.handlerRemoved(ctx);
     }
 

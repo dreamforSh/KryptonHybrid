@@ -208,11 +208,16 @@ tasks.register('trainZstdDict', JavaExec) {
 
     def samplesDirProp = providers.gradleProperty('samplesDir')
     def outputDictProp = providers.gradleProperty('outputDict')
-    def dictSizeProp = providers.gradleProperty('dictSize')
-    def maxSamplesProp = providers.gradleProperty('maxSamples')
-    def minSampleBytesProp = providers.gradleProperty('minSampleBytes')
-    def maxSampleBytesProp = providers.gradleProperty('maxSampleBytes')
-    def evalSamplesProp = providers.gradleProperty('evalSamples')
+    // Optional; the trainer's defaults apply when a property is not given.
+    def optionalProps = [
+            'dictSize'        : '--dict-size',
+            'maxSamples'      : '--max-samples',
+            'minSampleBytes'  : '--min-sample-bytes',
+            'maxSampleBytes'  : '--max-sample-bytes',
+            'largeSampleShare': '--large-sample-share',
+            'evalShare'       : '--eval-share',
+            'evalSamples'     : '--eval-samples',
+    ].collectEntries { name, option -> [(option): providers.gradleProperty(name)] }
 
     doFirst {
         def samplesDir = samplesDirProp.orNull
@@ -220,15 +225,14 @@ tasks.register('trainZstdDict', JavaExec) {
             throw new GradleException('Missing -PsamplesDir=<path>')
         }
 
-        def outputDict = outputDictProp.orElse('config/krypton_hybrid.zdict').get()
-        def dictSize = dictSizeProp.orElse('65536').get()
-        def maxSamples = maxSamplesProp.orElse('8000').get()
-        def minSampleBytes = minSampleBytesProp.orElse('8').get()
-        def maxSampleBytes = maxSampleBytesProp.orElse('2097152').get()
-        def evalSamples = evalSamplesProp.orElse('1000').get()
-
-        args samplesDir.toString(), outputDict.toString(), dictSize.toString(), maxSamples.toString(),
-                minSampleBytes.toString(), maxSampleBytes.toString(), evalSamples.toString()
+        def outputDict = outputDictProp.orElse('run/config/krypton_hybrid.zdict').get()
+        def trainerArgs = ['--samples', samplesDir.toString(), '--output', outputDict.toString()]
+        optionalProps.each { option, prop ->
+            if (prop.isPresent()) {
+                trainerArgs += [option, prop.get().toString()]
+            }
+        }
+        args trainerArgs
     }
 }
 
@@ -247,7 +251,7 @@ tasks.register('inspectZstdDict', JavaExec) {
     def dictPathProp = providers.gradleProperty('dictPath')
 
     doFirst {
-        def dictPath = dictPathProp.orElse('config/krypton_hybrid.zdict').get()
+        def dictPath = dictPathProp.orElse('run/config/krypton_hybrid.zdict').get()
         args 'inspect', dictPath.toString()
     }
 }

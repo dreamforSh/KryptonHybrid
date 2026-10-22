@@ -4,6 +4,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import com.xinian.KryptonHybrid.mixin.network.pipeline.ConnectionAccessor;
 import com.xinian.KryptonHybrid.shared.network.flow.ConfigurableAutoFlush;
+import com.xinian.KryptonHybrid.shared.network.flow.FlushWindows;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.PacketFlow;
@@ -21,12 +22,24 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Optimizes {@link Connection} by adding the ability to disable auto-flushing.
  * When auto-flush is disabled, packet writes are buffered and only flushed when
  * re-enabled, allowing many packets to be sent in one syscall instead of one per packet.
+ *
+ * <h3>Two flags</h3>
+ * <p>A packet sent from the server thread is written later, by a task on the channel's
+ * event loop. The state the windows ask for ({@link #kryptonfnp$requested}) therefore
+ * reaches the event loop as tasks queued behind those writes ({@link #kryptonfnp$ioAutoFlush}):
+ * every packet sent inside a window is written without a flush however late its task
+ * runs, and the release flush runs after all of them.</p>
  */
 @Mixin(Connection.class)
 public abstract class ConnectionMixin implements ConfigurableAutoFlush {
 
+    /** Auto-flush as requested by the flush windows (server thread). */
     @Unique
-    private AtomicBoolean kryptonfnp$autoFlush;
+    private AtomicBoolean kryptonfnp$requested;
+
+    /** Auto-flush as seen by writes (event loop); follows the requested state in task order. */
+    @Unique
+    private volatile boolean kryptonfnp$ioAutoFlush = true;
 
     /** Packets written but not flushed since the last consolidated flush (event loop only). */
     @Unique
@@ -39,18 +52,19 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void kryptonfnp$initAutoFlush(PacketFlow pReceiving, CallbackInfo ci) {
-        this.kryptonfnp$autoFlush = new AtomicBoolean(true);
+        this.kryptonfnp$requested = new AtomicBoolean(true);
         this.kryptonfnp$deferred = new AtomicInteger();
     }
 
     /**
-     * Suppress the per-tick {@code Channel.flush()} call only when flush consolidation is
-     * actively batching writes (i.e. {@code autoFlush == false}).
+     * Vanilla's per-tick {@code Channel.flush()}, run in the connection phase of the
+     * server tick. It ends a whole-tick flush window for this connection (see
+     * {@link FlushWindows}), and is otherwise suppressed only while a window holds
+     * the flush.
      * <p>
-     * When {@code autoFlush} is {@code true} (the default: during login, Forge handshake,
-     * hybrid-server negotiation, etc.) we let the tick flush proceed normally.  This is safe
-     * because all regular sends go through {@link #kryptonfnp$writeOrFlush} which already
-     * uses {@code writeAndFlush} in that state; however, some code paths on Forge / hybrid
+     * When auto-flush is on (the default: during login, Forge handshake, hybrid-server
+     * negotiation, etc.) the tick flush proceeds normally. Regular sends already use
+     * {@code writeAndFlush} in that state; however, some code paths on Forge / hybrid
      * server stacks (mod-channel registration, Bungeecord forwarding, etc.) write to the
      * channel directly via {@code ctx.write()} / {@code channel.write()} and rely on the
      * tick flush as the safety net to actually deliver those bytes.
@@ -62,12 +76,14 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
                     target = "Lio/netty/channel/Channel;flush()Lio/netty/channel/Channel;",
                     remap = false))
     private Channel kryptonfnp$suppressTickFlush(Channel channel) {
-        AtomicBoolean af = this.kryptonfnp$autoFlush;
-        if (af != null && !af.get()) {
-
+        AtomicBoolean requested = this.kryptonfnp$requested;
+        if (requested != null && !requested.get()) {
+            if (FlushWindows.isTickWindowOpen()) {
+                // Releasing flushes in order with the writes queued so far.
+                setShouldAutoFlush(true);
+            }
             return channel;
         }
-
         return channel.flush();
     }
 
@@ -83,8 +99,7 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
                     ordinal = 0,
                     remap = false))
     private ChannelFuture kryptonfnp$writeOrFlush(Channel channel, Object msg) {
-        AtomicBoolean af = this.kryptonfnp$autoFlush;
-        if (af != null && !af.get()) {
+        if (!this.kryptonfnp$ioAutoFlush) {
             this.kryptonfnp$deferred.incrementAndGet();
             return channel.write(msg);
         }
@@ -93,30 +108,36 @@ public abstract class ConnectionMixin implements ConfigurableAutoFlush {
 
     @Override
     public void setShouldAutoFlush(boolean shouldAutoFlush) {
-        AtomicBoolean af = this.kryptonfnp$autoFlush;
-        if (af == null) return;
-        boolean prev = af.getAndSet(shouldAutoFlush);
-        if (!prev && shouldAutoFlush) {
-            Channel channel = this.kryptonfnp$channel();
-            if (channel == null) return;
-            // Sends from other threads reach the channel as event-loop tasks; flushing as a
-            // task too runs after them, so the flush and its packet count cover all of them.
-            if (channel.eventLoop().inEventLoop()) {
-                kryptonfnp$flushDeferred(channel);
-            } else {
-                channel.eventLoop().execute(() -> kryptonfnp$flushDeferred(channel));
-            }
+        AtomicBoolean requested = this.kryptonfnp$requested;
+        if (requested == null || requested.getAndSet(shouldAutoFlush) == shouldAutoFlush) {
+            return;
+        }
+        Channel channel = this.kryptonfnp$channel();
+        if (channel == null) {
+            this.kryptonfnp$ioAutoFlush = shouldAutoFlush;
+            return;
+        }
+        // Sends from other threads reach the channel as event-loop tasks; applying the
+        // change as a task too orders it after the writes queued before it.
+        if (channel.eventLoop().inEventLoop()) {
+            kryptonfnp$applyAutoFlush(channel, shouldAutoFlush);
+        } else {
+            channel.eventLoop().execute(() -> kryptonfnp$applyAutoFlush(channel, shouldAutoFlush));
         }
     }
 
     @Override
     public boolean isAutoFlushing() {
-        AtomicBoolean af = this.kryptonfnp$autoFlush;
-        return af == null || af.get();
+        AtomicBoolean requested = this.kryptonfnp$requested;
+        return requested == null || requested.get();
     }
 
     @Unique
-    private void kryptonfnp$flushDeferred(Channel channel) {
+    private void kryptonfnp$applyAutoFlush(Channel channel, boolean autoFlush) {
+        this.kryptonfnp$ioAutoFlush = autoFlush;
+        if (!autoFlush) {
+            return;
+        }
         int packets = this.kryptonfnp$deferred.getAndSet(0);
         if (packets > 0) {
             NetworkTrafficStats.INSTANCE.recordConsolidatedFlush(packets);

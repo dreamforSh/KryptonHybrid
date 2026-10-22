@@ -1,5 +1,7 @@
 package com.xinian.KryptonHybrid.command;
 
+import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastCompressedCache;
+import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -123,8 +125,19 @@ public final class KryptonStatsCommand {
                 String.format("%.1f", stats.getPacketsPerFlush()),
                 String.format("%.1f", stats.getFlushSavingRate() * 100.0),
                 String.format("%,d", stats.getCoalesceDroppedPackets())), false);
+        source.sendSuccess(t("command.krypton_hybrid.stats.cache",
+                cacheRate(BroadcastSerializationCache.hits(), BroadcastSerializationCache.misses()),
+                String.format("%,d", BroadcastSerializationCache.hits()),
+                cacheRate(BroadcastCompressedCache.hits(), BroadcastCompressedCache.misses()),
+                String.format("%,d", BroadcastCompressedCache.hits())), false);
 
         return 1;
+    }
+
+    /** Hit rate in percent, or "-" before any lookup. */
+    private static String cacheRate(long hits, long misses) {
+        long total = hits + misses;
+        return total == 0 ? "-" : String.format("%.1f", hits * 100.0 / total);
     }
 
     private static int executeGui(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
@@ -305,6 +318,8 @@ public final class KryptonStatsCommand {
 
     private static int executeReset(CommandContext<CommandSourceStack> ctx) {
         NetworkTrafficStats.INSTANCE.reset();
+        BroadcastSerializationCache.resetCounters();
+        BroadcastCompressedCache.resetCounters();
         ctx.getSource().sendSuccess(t("command.krypton_hybrid.stats.reset")
                 .withStyle(ChatFormatting.GREEN), true);
         return 1;

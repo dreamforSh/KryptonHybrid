@@ -20,16 +20,26 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import io.netty.buffer.Unpooled;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
 /**
  * Throttles redundant {@link ClientboundSetEntityDataPacket} broadcasts on
  * Forge 1.19.2 by filtering unchanged {@link SynchedEntityData.DataItem} values.
+ *
+ * <p>Vanilla already skips {@code set} calls with an equal value; this also drops
+ * values that changed and changed back within a tick, and item stacks (which vanilla
+ * compares by reference). Each dirty item is serialized into a reused scratch buffer
+ * and compared with the bytes last broadcast; a new snapshot is only stored when the
+ * value really changed.</p>
  */
 @Mixin(ServerEntity.class)
 public abstract class ServerEntityDataThrottleMixin {
+
+    /** Server-thread scratch buffers, reused for every comparison and packet header. */
+    @Unique
+    private static final ThreadLocal<FriendlyByteBuf> krypton$SCRATCH =
+            ThreadLocal.withInitial(() -> new FriendlyByteBuf(Unpooled.buffer(256)));
 
     @Accessor("entity")
     abstract Entity krypton$getEntity();
@@ -37,8 +47,9 @@ public abstract class ServerEntityDataThrottleMixin {
     @Invoker("broadcastAndSend")
     abstract void krypton$broadcastAndSend(Packet<?> packet);
 
+    /** Last broadcast bytes per data item id; created on first use. */
     @Unique
-    private final Int2ObjectOpenHashMap<byte[]> krypton$lastBroadcastSnapshots = new Int2ObjectOpenHashMap<>();
+    private Int2ObjectOpenHashMap<byte[]> krypton$lastBroadcastSnapshots;
 
     @Inject(method = "sendDirtyEntityData", at = @At("HEAD"), cancellable = true)
     private void krypton$throttledSendDirtyEntityData(CallbackInfo ci) {
@@ -48,6 +59,7 @@ public abstract class ServerEntityDataThrottleMixin {
         SynchedEntityData data = entity.getEntityData();
 
         if (data.isDirty()) {
+            // packDirty() returns copies, so the list can go into the packet as is.
             List<SynchedEntityData.DataItem<?>> dirtyList = data.packDirty();
             if (dirtyList != null) {
                 List<SynchedEntityData.DataItem<?>> filtered = krypton$filterUnchanged(dirtyList);
@@ -69,39 +81,57 @@ public abstract class ServerEntityDataThrottleMixin {
     @Unique
     private List<SynchedEntityData.DataItem<?>> krypton$filterUnchanged(
             List<SynchedEntityData.DataItem<?>> dirtyEntries) {
+        Int2ObjectOpenHashMap<byte[]> snapshots = this.krypton$lastBroadcastSnapshots;
+        if (snapshots == null) {
+            snapshots = new Int2ObjectOpenHashMap<>();
+            this.krypton$lastBroadcastSnapshots = snapshots;
+        }
+        FriendlyByteBuf scratch = krypton$SCRATCH.get();
         List<SynchedEntityData.DataItem<?>> result = new ArrayList<>(dirtyEntries.size());
 
         for (SynchedEntityData.DataItem<?> entry : dirtyEntries) {
             int id = entry.getAccessor().getId();
-            byte[] currentSnapshot = krypton$serializedSnapshot(entry);
-            boolean hasPreviousValue = krypton$lastBroadcastSnapshots.containsKey(id);
-            byte[] previousSnapshot = krypton$lastBroadcastSnapshots.get(id);
+            scratch.clear();
+            SynchedEntityData.pack(List.of(entry), scratch);
+            int length = scratch.readableBytes();
 
-            if (!hasPreviousValue || !Arrays.equals(previousSnapshot, currentSnapshot)) {
-                result.add(entry);
-                krypton$lastBroadcastSnapshots.put(id, currentSnapshot);
+            byte[] previous = snapshots.get(id);
+            if (previous != null && krypton$sameBytes(previous, scratch, length)) {
+                continue;
             }
+            byte[] current = new byte[length];
+            scratch.getBytes(0, current);
+            snapshots.put(id, current);
+            result.add(entry);
         }
 
         return result;
     }
 
     @Unique
-    private static byte[] krypton$serializedSnapshot(SynchedEntityData.DataItem<?> item) {
-        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-        SynchedEntityData.pack(List.of(item), buf);
-        byte[] out = new byte[buf.readableBytes()];
-        buf.getBytes(buf.readerIndex(), out);
-        return out;
+    private static boolean krypton$sameBytes(byte[] previous, FriendlyByteBuf current, int length) {
+        if (previous.length != length) {
+            return false;
+        }
+        for (int i = 0; i < length; i++) {
+            if (previous[i] != current.getByte(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 
+    /** Builds the packet around the filtered list instead of serializing and parsing it back. */
     @Unique
     private static ClientboundSetEntityDataPacket krypton$createSetEntityDataPacket(
             int entityId,
             List<SynchedEntityData.DataItem<?>> items) {
-        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
-        buf.writeVarInt(entityId);
-        SynchedEntityData.pack(items, buf);
-        return new ClientboundSetEntityDataPacket(buf);
+        FriendlyByteBuf header = krypton$SCRATCH.get();
+        header.clear();
+        header.writeVarInt(entityId);
+        SynchedEntityData.pack(null, header); // just the end marker: no items to parse
+        ClientboundSetEntityDataPacket packet = new ClientboundSetEntityDataPacket(header);
+        ((ClientboundSetEntityDataPacketAccessor) packet).krypton$setPackedItems(items);
+        return packet;
     }
 }

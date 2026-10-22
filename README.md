@@ -100,24 +100,26 @@ LIST_STREAM_CODEC (unchanged vanilla encoding)
 
 ### 4. Delayed Chunk Cache (DCC)
 
-Departing chunks are **buffered** instead of immediately dropped. If the player re-enters range before the entry expires, the full resend is skipped.
+Departing chunks the client actually received are **kept on the client** instead of immediately dropped, as long as they stay within the client's chunk storage (view distance + 3 around its view center); state is tracked per connection, so it follows respawns and resets when the client changes dimension. If the player re-enters range before the entry expires **and the chunk has not changed since it left the player's view**, the full resend is skipped. Every chunk carries a change stamp (bumped on block changes, including in non-ticking chunks, and on every block / light / block-entity broadcast); a changed chunk is resent normally.
 
 | Config key | Default | Description |
 |---|---|---|
 | `dcc.enabled` | `true` | Master switch |
 | `dcc.size_limit` | 60 | Max buffered chunks per player |
-| `dcc.distance` | 5 | Cache radius around player position (chunks) |
 | `dcc.timeout_seconds` | 30 | Forced eviction timeout |
 
-Eviction occurs on three dimensions: **distance**, **capacity**, and **timeout**. Evicted entries trigger deferred `dropChunk` callbacks on the next `ChunkMap.tick()`.
+Eviction occurs on three dimensions: **distance** (before the player's view center moves, so the client still applies the forget), **capacity**, and **timeout** (on `ChunkMap.tick()`).
 
 ---
 
 ### 5. Flush Consolidation + Tick Packet Batching
 
-Each server tick's block and entity updates are written to every player's connection and flushed once, instead of one flush per packet:
+Each server tick's packets are written to every player's connection and flushed once, instead of one flush per packet. With `tick_flush.enabled` (default) the hold covers the **whole server tick** — world, entity, block-entity and player ticks — and each connection is released by vanilla's own per-connection flush in the connection phase. Replies to client packets between ticks are not held. Inside the tick the broadcast phase still collects and coalesces packets per player:
 
 ```
+MinecraftServer.tickServer() HEAD
+  Hold flushes for all players (whole-tick window)
+
 ServerChunkCache.tickChunks() "broadcast" phase
   ① Recovery: deliver anything a failed previous tick left behind
   ② Hold flushes for all players (outermost window)
@@ -128,13 +130,19 @@ ServerChunkCache.tickChunks() "broadcast" phase
     ⑤ Collect entity updates per player, coalesce them, write them
 
 tickChunks() RETURN
-  ⑥ Release the hold → one flush per player (or after micro_batch_flush.delay_ms)
+  ⑥ Without tick_flush: release the hold → one flush per player (or after micro_batch_flush.delay_ms)
+
+Connection.tick() (connection phase)
+  ⑦ With tick_flush: release this player's hold → one flush for the whole tick
 ```
+
+Window state changes reach each connection's event loop as tasks queued behind the writes, so packets sent from the server thread are batched even when their writes run after the window closes.
 
 | Layer | Mechanism | Benefit |
 |---|---|---|
 | Flush consolidation (Netty) | Buffer writes, one `flush()` per player per tick | Fewer syscalls on busy servers |
 | Packet coalescing | Drop superseded motion / teleport / entity-data / head-rotation packets in the same tick | Fewer packets and bytes |
+| Motion delta filter | Drop velocity packets that barely changed since the last one sent to that player (a stop is always sent) | Fewer projectile / item packets |
 
 Minecraft 1.19.2 has no bundle packet (`ClientboundBundlePacket` arrived in 1.19.4), so packets are still framed individually. The dashboard reports **flush savings** (share of flushes avoided, `1 − flushes / packets held`) and **packets per flush**.
 

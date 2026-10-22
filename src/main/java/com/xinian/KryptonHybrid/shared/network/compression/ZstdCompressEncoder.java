@@ -1,18 +1,18 @@
 package com.xinian.KryptonHybrid.shared.network.compression;
 
 import com.github.luben.zstd.ZstdCompressCtx;
+import com.github.luben.zstd.ZstdDictCompress;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import io.netty.util.concurrent.SingleThreadEventExecutor;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastCompressedCache;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.util.ReservedFrameHeader;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.resources.ResourceLocation;
 
 import java.nio.ByteBuffer;
 
@@ -77,13 +77,47 @@ import java.nio.ByteBuffer;
  */
 public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
+    /** Pending tasks above which the I/O thread is treated as busy (see level selection). */
+    private static final int BUSY_IO_TASKS = 128;
+
+    /** How a packet class picks its compression level; computed once per class. */
+    private enum LevelClass { CUSTOM_PAYLOAD, CHUNK_OR_LIGHT, BULK_SYNC, OTHER }
+
+    private static final ClassValue<LevelClass> LEVEL_CLASS = new ClassValue<>() {
+        @Override
+        protected LevelClass computeValue(Class<?> type) {
+            String name = type.getSimpleName();
+            if (name.endsWith("CustomPayloadPacket")) {
+                return LevelClass.CUSTOM_PAYLOAD;
+            }
+            if (name.contains("LevelChunk") || name.contains("LightUpdate")) {
+                return LevelClass.CHUNK_OR_LIGHT;
+            }
+            if (name.contains("UpdateRecipes") || name.contains("Recipe") || name.contains("RegistryData")
+                    || name.contains("UpdateTags") || name.contains("Login") || name.contains("Configuration")) {
+                return LevelClass.BULK_SYNC;
+            }
+            return LevelClass.OTHER;
+        }
+    };
+
     private int threshold;
+    /** Standard frames, no dictionary: every packet without a dictionary, and large ones with. */
     private final ZstdCompressCtx compressor;
+    /** Magicless frames with the dictionary, or {@code null} without one (see {@link ZstdUtil#FRAME_MAGIC}). */
+    private final ZstdCompressCtx dictCompressor;
+    /** Dictionary this connection compresses with, or {@code null}. */
+    private final byte[] dictionary;
+    /** Prepared dictionaries by level (only with a dictionary). */
+    private final ZstdDictCompress[] dictionaryByLevel;
+    /** Levels the contexts are set to, or -1 before their first compression. */
+    private int currentLevel = -1;
+    private int currentDictLevel = -1;
 
     /** Grow-only scratch buffer for the input (heap-fallback path only). */
-    private byte[] scratchIn = new byte[8192];
+    private byte[] scratchIn;
     /** Grow-only scratch buffer for the output (heap-fallback path only). */
-    private byte[] scratchOut = new byte[8192];
+    private byte[] scratchOut;
 
     /**
      * Creates a new encoder.
@@ -92,10 +126,15 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
      *                   raw (VarInt 0 prefix); packets at or above it will be Zstd-compressed
      * @param compressor a per-channel {@link ZstdCompressCtx} instance (see
      *                   {@link ZstdUtil#createCompressor()})
+     * @param dictionary the dictionary to compress with ({@link ZstdUtil#compressionDictionary()}),
+     *                   or {@code null}; packets above {@code dict_max_packet_bytes} never use it
      */
-    public ZstdCompressEncoder(int threshold, ZstdCompressCtx compressor) {
+    public ZstdCompressEncoder(int threshold, ZstdCompressCtx compressor, byte[] dictionary) {
         this.threshold = threshold;
         this.compressor = compressor;
+        this.dictionary = dictionary;
+        this.dictCompressor = dictionary == null ? null : ZstdUtil.createDictionaryCompressor();
+        this.dictionaryByLevel = dictionary == null ? null : new ZstdDictCompress[23];
     }
 
     @Override
@@ -104,20 +143,19 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         int uncompressedSize = msg.readableBytes();
         int startWireIndex = out.writerIndex();
 
-        // ?? Pull the (optional) Packet reference handed off by PacketEncoderMixin ??
+        // Pull the (optional) Packet reference handed off by PacketEncoderMixin.
         Object currentPacket = BroadcastSerializationCache.pollCurrentPacket();
         Packet<?> packet = (currentPacket instanceof Packet<?> p) ? p : null;
-        ZstdSampleRecorder.maybeRecord(packet, msg, uncompressedSize);
 
-        // ?? P0 Compressed-bytes broadcast cache: short-circuit if the same Packet
-        //    instance was already compressed earlier on this Netty I/O thread. ??
-        if (packet != null && BroadcastCompressedCache.isCacheable(packet)) {
-            byte[] cachedWire = BroadcastCompressedCache.get(packet);
+        // Compressed-bytes broadcast cache: short-circuit if the same Packet instance was
+        // already compressed (with the same dictionary) earlier on this Netty I/O thread.
+        boolean cacheable = packet != null && BroadcastCompressedCache.isCacheable(packet);
+        if (cacheable) {
+            byte[] cachedWire = BroadcastCompressedCache.get(packet, dictionary);
             if (cachedWire != null) {
                 out.writeBytes(cachedWire);
                 msg.skipBytes(uncompressedSize);
-                NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, cachedWire.length);
-                kryptonRecordWirePacket(packet, cachedWire.length);
+                kryptonRecord(packet, uncompressedSize, cachedWire.length);
                 return;
             }
         }
@@ -126,15 +164,17 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         if (uncompressedSize < threshold) {
             wrappedOut.writeVarInt(0);
             out.writeBytes(msg);
-            int wire = out.writerIndex() - startWireIndex;
-            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
-            kryptonRecordWirePacket(packet, wire);
-            kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+            kryptonRecord(packet, uncompressedSize, out.writerIndex() - startWireIndex);
             return;
         }
 
-        // --- Packet-aware compression level selection ---
-        compressor.setLevel(kryptonSelectCompressionLevel(packet, uncompressedSize));
+        // Training samples: only packets that are actually compressed.
+        ZstdSampleRecorder.maybeRecord(packet, msg, uncompressedSize);
+
+        // --- Dictionary for small and medium packets only; packet-aware level ---
+        ZstdCompressCtx zstd = kryptonUseLevel(
+                uncompressedSize <= KryptonConfig.zstdDictMaxPacketBytes,
+                kryptonSelectCompressionLevel(ctx, packet, uncompressedSize));
 
         int maxOut = ZstdUtil.maxCompressedLength(uncompressedSize);
 
@@ -143,7 +183,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         wrappedOut.writeVarInt(uncompressedSize);
         int headerLen = out.writerIndex() - headerStart;
 
-        // --- Fast path: both buffers are direct ??zero-copy native compression ---
+        // --- Fast path: both buffers are direct, zero-copy native compression ---
         if (msg.isDirect() && msg.nioBufferCount() == 1
                 && out.isDirect() && out.nioBufferCount() == 1) {
             // Ensure the output buffer has enough writable capacity
@@ -153,7 +193,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             ByteBuffer nioIn  = msg.nioBuffer(msg.readerIndex(), uncompressedSize);
             ByteBuffer nioOut = out.nioBuffer(out.writerIndex(), maxOut);
 
-            int compressedSize = compressor.compressDirectByteBuffer(
+            int compressedSize = zstd.compressDirectByteBuffer(
                     nioOut, 0, maxOut,
                     nioIn,  0, uncompressedSize);
 
@@ -164,10 +204,7 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
                 wrappedOut.writeVarInt(0);
                 out.writeBytes(msg, msg.readerIndex(), uncompressedSize);
                 msg.skipBytes(uncompressedSize);
-                int wire = out.writerIndex() - startWireIndex;
-                NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
-                kryptonRecordWirePacket(packet, wire);
-                kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+                kryptonRecord(packet, uncompressedSize, out.writerIndex() - startWireIndex);
                 return;
             }
 
@@ -176,27 +213,29 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
             out.writerIndex(out.writerIndex() + compressedSize);
 
             int wire = out.writerIndex() - startWireIndex;
-            NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
-            kryptonRecordWirePacket(packet, wire);
-            kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+            kryptonRecord(packet, uncompressedSize, wire);
+            if (cacheable) {
+                kryptonCacheCompressed(packet, out, startWireIndex, wire);
+            }
             return;
         }
 
         // --- Heap fallback: reusable scratch buffers ---
-        if (scratchIn.length < uncompressedSize) {
-            scratchIn = new byte[uncompressedSize];
+        if (scratchIn == null || scratchIn.length < uncompressedSize) {
+            scratchIn = new byte[Math.max(8192, uncompressedSize)];
         }
         msg.readBytes(scratchIn, 0, uncompressedSize);
 
-        if (scratchOut.length < maxOut) {
-            scratchOut = new byte[maxOut];
+        if (scratchOut == null || scratchOut.length < maxOut) {
+            scratchOut = new byte[Math.max(8192, maxOut)];
         }
 
-        int compressedSize = compressor.compressByteArray(
+        int compressedSize = zstd.compressByteArray(
                 scratchOut, 0, maxOut,
                 scratchIn, 0, uncompressedSize);
 
-        if ((headerLen + compressedSize) >= (1 + uncompressedSize)) {
+        boolean raw = (headerLen + compressedSize) >= (1 + uncompressedSize);
+        if (raw) {
             out.writerIndex(startWireIndex);
             wrappedOut.writeVarInt(0);
             out.writeBytes(scratchIn, 0, uncompressedSize);
@@ -205,118 +244,97 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
         }
 
         int wire = out.writerIndex() - startWireIndex;
-        NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wire);
-        kryptonRecordWirePacket(packet, wire);
-        kryptonMaybeCacheCompressed(packet, out, startWireIndex, wire);
+        kryptonRecord(packet, uncompressedSize, wire);
+        if (cacheable && !raw) {
+            kryptonCacheCompressed(packet, out, startWireIndex, wire);
+        }
     }
 
-    private static int kryptonSelectCompressionLevel(Packet<?> packet, int uncompressedSize) {
+    /**
+     * Picks the context for this packet (the dictionary one when there is a dictionary and
+     * {@code dictionarySize} allows it) and sets it to {@code level} if it is not already
+     * there. The dictionary context also loads the dictionary prepared for that level:
+     * libzstd ignores level changes once a raw dictionary's tables are built.
+     */
+    private ZstdCompressCtx kryptonUseLevel(boolean dictionarySize, int level) {
+        if (dictCompressor == null || !dictionarySize) {
+            if (level != currentLevel) {
+                compressor.setLevel(level);
+                currentLevel = level;
+            }
+            return compressor;
+        }
+        if (level != currentDictLevel) {
+            ZstdDictCompress prepared = dictionaryByLevel[level];
+            if (prepared == null) {
+                prepared = ZstdUtil.compressDictionary(dictionary, level);
+                dictionaryByLevel[level] = prepared;
+            }
+            dictCompressor.loadDict(prepared);
+            dictCompressor.setLevel(level);
+            currentDictLevel = level;
+        }
+        return dictCompressor;
+    }
+
+    /**
+     * Base level for ordinary packets; the adaptive (higher) level for large chunk, light
+     * and bulk-sync packets, unless this I/O thread is busy: other players' packets queue
+     * behind a slow compression, so a backlog (e.g. a join burst) uses the base level.
+     */
+    private static int kryptonSelectCompressionLevel(ChannelHandlerContext ctx, Packet<?> packet,
+                                                     int uncompressedSize) {
         int baseLevel = clampLevel(KryptonConfig.zstdLevel);
         int adaptiveLevel = KryptonConfig.zstdAdaptiveLargeLevel;
         int adaptiveThreshold = Math.max(0, KryptonConfig.zstdAdaptiveLargeThreshold);
 
-        if (packet != null) {
-            String packetName = packet.getClass().getSimpleName();
-
-            if (kryptonIsCustomPayload(packetName)) {
-                // Mod payloads are often already compact or self-compressed. Keep latency
-                // predictable and rely on the post-compression raw fallback for bandwidth.
-                return Math.min(baseLevel, 3);
-            }
-
-            if (kryptonIsChunkOrLightPacket(packetName)) {
-                if (adaptiveLevel > 0 && uncompressedSize >= adaptiveThreshold) {
-                    return clampLevel(adaptiveLevel);
-                }
-                return baseLevel;
-            }
-
-            if (kryptonIsBulkSyncPacket(packetName)
-                    && adaptiveLevel > 0
-                    && uncompressedSize >= Math.max(1024, adaptiveThreshold / 2)) {
-                return clampLevel(adaptiveLevel);
-            }
+        LevelClass levelClass = packet == null ? LevelClass.OTHER : LEVEL_CLASS.get(packet.getClass());
+        if (levelClass == LevelClass.CUSTOM_PAYLOAD) {
+            // Mod payloads are often already compact or self-compressed. Keep latency
+            // predictable and rely on the post-compression raw fallback for bandwidth.
+            return Math.min(baseLevel, 3);
         }
-
-        if (adaptiveLevel > 0 && uncompressedSize >= adaptiveThreshold) {
-            return clampLevel(adaptiveLevel);
+        int largeFrom = levelClass == LevelClass.BULK_SYNC
+                ? Math.max(1024, adaptiveThreshold / 2)
+                : adaptiveThreshold;
+        if (adaptiveLevel <= 0 || uncompressedSize < largeFrom || kryptonIoBusy(ctx)) {
+            return baseLevel;
         }
-        return baseLevel;
+        return clampLevel(adaptiveLevel);
     }
 
-    private static boolean kryptonIsChunkOrLightPacket(String packetName) {
-        return packetName.contains("LevelChunk")
-                || packetName.contains("LightUpdate");
-    }
-
-    private static boolean kryptonIsBulkSyncPacket(String packetName) {
-        return packetName.contains("UpdateRecipes")
-                || packetName.contains("Recipe")
-                || packetName.contains("RegistryData")
-                || packetName.contains("UpdateTags")
-                || packetName.contains("Login")
-                || packetName.contains("Configuration");
-    }
-
-    private static boolean kryptonIsCustomPayload(String packetName) {
-        return packetName.endsWith("CustomPayloadPacket");
+    private static boolean kryptonIoBusy(ChannelHandlerContext ctx) {
+        return ctx.executor() instanceof SingleThreadEventExecutor loop
+                && loop.pendingTasks() > BUSY_IO_TASKS;
     }
 
     private static int clampLevel(int level) {
         return Math.max(1, Math.min(22, level));
     }
 
-    private static void kryptonRecordWirePacket(Packet<?> packet, int wireBytes) {
-        if (packet == null || wireBytes <= 0) return;
-        NetworkTrafficStats.INSTANCE.recordPacketWire(
-                kryptonResolveKey(packet),
-                kryptonResolveModId(packet),
-                wireBytes);
-    }
-
-    private static String kryptonResolveKey(Packet<?> packet) {
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            ResourceLocation id = cp.getIdentifier();
-            return "custom:" + id.getNamespace() + "/" + id.getPath();
+    private static void kryptonRecord(Packet<?> packet, int uncompressedSize, int wireBytes) {
+        NetworkTrafficStats.INSTANCE.recordEncode(uncompressedSize, wireBytes);
+        if (packet != null && wireBytes > 0) {
+            NetworkTrafficStats.INSTANCE.recordPacketWire(packet, wireBytes);
         }
-        if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            ResourceLocation id = sp.getIdentifier();
-            return "custom:" + id.getNamespace() + "/" + id.getPath();
-        }
-        return packet.getClass().getSimpleName();
-    }
-
-    private static String kryptonResolveModId(Packet<?> packet) {
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            return cp.getIdentifier().getNamespace();
-        }
-        if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            return sp.getIdentifier().getNamespace();
-        }
-        String pkg = packet.getClass().getPackageName();
-        if (pkg.startsWith("net.minecraft.")) return "minecraft";
-        String[] parts = pkg.split("\\.", 4);
-        return parts.length >= 3 ? parts[2] : "unknown";
     }
 
     /**
-     * Stores the just-emitted compressed wire bytes into
-     * {@link BroadcastCompressedCache} when the packet is one of the cacheable
-     * broadcast types and the wire payload is small enough to be worth caching
-     * (i.e. won't exceed our per-thread memory budget).
+     * Stores the just-emitted compressed wire bytes into {@link BroadcastCompressedCache}
+     * when they are small enough to be worth caching (i.e. won't exceed our per-thread
+     * memory budget). Raw pass-through output is not cached: replaying it saves nothing.
      */
-    private static void kryptonMaybeCacheCompressed(Packet<?> packet, ByteBuf out, int startWireIndex, int wireLen) {
-        if (packet == null) return;
-        if (!BroadcastCompressedCache.isCacheable(packet)) return;
+    private void kryptonCacheCompressed(Packet<?> packet, ByteBuf out, int startWireIndex, int wireLen) {
         if (wireLen <= 0 || wireLen > 65536) return;
         byte[] copy = new byte[wireLen];
         out.getBytes(startWireIndex, copy);
-        BroadcastCompressedCache.put(packet, copy);
+        BroadcastCompressedCache.put(packet, dictionary, copy);
     }
 
     /**
      * Always allocates a <strong>direct</strong> output buffer to maximize the chance
-     * of hitting the zero-copy compression fast path.
+     * of hitting the zero-copy compression fast path, with room in front for the frame
+     * length ({@link ReservedFrameHeader}).
      *
      * <p>Size is {@code 5 (max VarInt) + maxCompressedLength(input)} which guarantees
      * the compressed output always fits without reallocation.</p>
@@ -324,8 +342,8 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
     @Override
     protected ByteBuf allocateBuffer(ChannelHandlerContext ctx, ByteBuf msg, boolean preferDirect)
             throws Exception {
-        int initialSize = 5 + ZstdUtil.maxCompressedLength(msg.readableBytes());
-        return ctx.alloc().directBuffer(initialSize);
+        int initialSize = ReservedFrameHeader.SIZE + 5 + ZstdUtil.maxCompressedLength(msg.readableBytes());
+        return ReservedFrameHeader.reserve(ctx.alloc().directBuffer(initialSize));
     }
 
     /**
@@ -334,6 +352,9 @@ public class ZstdCompressEncoder extends MessageToByteEncoder<ByteBuf> {
     @Override
     public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
         compressor.close();
+        if (dictCompressor != null) {
+            dictCompressor.close();
+        }
         super.handlerRemoved(ctx);
     }
 

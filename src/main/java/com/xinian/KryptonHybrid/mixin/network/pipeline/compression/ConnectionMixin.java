@@ -71,10 +71,13 @@ public class ConnectionMixin {
 
             } else {
                 if (CompressionNegotiation.shouldUseZstd((Connection) (Object) this)) {
+                    // One dictionary for both directions (null without one).
+                    byte[] dictionary = ZstdUtil.compressionDictionary();
                     ZstdCompressEncoder zstdEncoder =
-                            new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor());
+                            new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor(), dictionary);
                     ZstdCompressDecoder zstdDecoder =
-                            new ZstdCompressDecoder(compressionThreshold, validate, ZstdUtil.createDecompressor());
+                            new ZstdCompressDecoder(compressionThreshold, validate, ZstdUtil.createDecompressor(),
+                                    dictionary == null ? null : ZstdUtil.createDictionaryDecompressor(dictionary));
 
                     this.kryptonfnp$channel().pipeline().addBefore("decoder", "decompress", zstdDecoder);
                     this.kryptonfnp$channel().pipeline().addBefore("encoder", "compress", zstdEncoder);

@@ -9,6 +9,7 @@ import net.minecraft.network.PacketEncoder;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundCustomPayloadPacket;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ServerboundCustomPayloadPacket;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
@@ -25,7 +26,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * Injects into {@link PacketEncoder} to:
  * <ol>
  *   <li>Record per-packet-type and per-mod traffic stats for {@code /krypton stats}.</li>
- *   <li>Implement the <strong>Broadcast Serialization Cache</strong> (P0-??: when the
+ *   <li>Implement the <strong>Broadcast Serialization Cache</strong>: when the
  *       same {@link Packet} object instance is encoded on the same Netty I/O thread
  *       (common in broadcast scenarios), the serialized bytes are cached on first encode
  *       and reused for subsequent encodes, skipping all VarInt/NBT/collection
@@ -35,24 +36,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PacketEncoder.class)
 public class PacketEncoderMixin {
 
+    /** Below this, serializing again is about as cheap as copying cached bytes. */
+    @Unique
+    private static final int kryptonfnp$MIN_CACHED_BYTES = 64;
+    @Unique
+    private static final int kryptonfnp$MAX_CACHED_BYTES = 65536;
+
     @Shadow @Final private PacketFlow flow;
 
     /**
      * HEAD inject: check the broadcast serialization cache before encoding.
      * If the same Packet instance was already encoded on this thread, write the
      * cached bytes directly and cancel the vanilla encode.
-     *
-     * <p>Also publishes the current Packet reference into a thread-local slot so
-     * that the downstream {@code ZstdCompressEncoder} (called synchronously when
-     * the encoded {@code out} buffer is propagated via {@code ctx.write}) can
-     * consult the post-compression cache and detect bundle-sub-packet scope.</p>
      */
     @Inject(method = "encode", at = @At("HEAD"), cancellable = true)
     private void kryptonfnp$cacheHitEncode(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
         PacketControlContext.setCurrentChannel(ctx.channel());
-
-
-        BroadcastSerializationCache.setCurrentPacket(packet);
 
         if (!kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
             return;
@@ -60,10 +59,9 @@ public class PacketEncoderMixin {
         byte[] cached = BroadcastSerializationCache.get(packet);
         if (cached != null) {
             out.writeBytes(cached);
-            // Track stats for the cached write too
-            NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), cached.length);
-            NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), cached.length);
+            NetworkTrafficStats.INSTANCE.recordPacket(packet, cached.length);
             PacketControlContext.clearCurrentChannel();
+            BroadcastSerializationCache.setCurrentPacket(packet);
             ci.cancel();
         }
     }
@@ -71,64 +69,44 @@ public class PacketEncoderMixin {
     /**
      * TAIL inject: record traffic stats and populate the broadcast serialization
      * cache for future same-instance encodes on this Netty I/O thread.
+     *
+     * <p>Also publishes the packet in a thread-local slot for the downstream compression
+     * encoder, which runs synchronously when {@code out} is written on. It is set only
+     * after a successful encode, so a failed one never leaves a stale packet behind for
+     * an unrelated buffer.</p>
      */
     @Inject(method = "encode", at = @At("TAIL"))
     private void kryptonfnp$trackAndCachePacket(ChannelHandlerContext ctx, Packet<?> packet, ByteBuf out, CallbackInfo ci) {
         int bytes = out.readableBytes();
-        NetworkTrafficStats.INSTANCE.recordPacketType(kryptonfnp$resolveKey(packet), bytes);
-        NetworkTrafficStats.INSTANCE.recordPacketMod(kryptonfnp$resolveModId(packet), bytes);
+        NetworkTrafficStats.INSTANCE.recordPacket(packet, bytes);
 
-
-        if (kryptonfnp$shouldUseBroadcastCache(ctx, packet) && bytes > 0 && bytes < 65536) {
+        if (bytes >= kryptonfnp$MIN_CACHED_BYTES && bytes < kryptonfnp$MAX_CACHED_BYTES
+                && kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
             byte[] serialized = new byte[bytes];
             out.getBytes(out.readerIndex(), serialized);
             BroadcastSerializationCache.put(packet, serialized);
         }
 
         PacketControlContext.clearCurrentChannel();
+        BroadcastSerializationCache.setCurrentPacket(packet);
     }
 
     /**
      * Only server-to-client PLAY packets are broadcast. The protocol comes from vanilla's
      * own channel attribute, so the cache works whether or not the security handlers
-     * (which track their own connection phase) are installed.
+     * (which track their own connection phase) are installed. Chunk packets are mostly
+     * built per player and are large to copy; when one is shared, the compressed cache
+     * still saves its compression.
      */
     @Unique
     private boolean kryptonfnp$shouldUseBroadcastCache(ChannelHandlerContext ctx, Packet<?> packet) {
         if (!KryptonConfig.broadcastCacheEnabled || this.flow != PacketFlow.CLIENTBOUND) {
             return false;
         }
-        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket) {
+        if (packet instanceof ClientboundCustomPayloadPacket || packet instanceof ServerboundCustomPayloadPacket
+                || packet instanceof ClientboundLevelChunkWithLightPacket) {
             return false;
         }
         return ctx.channel().attr(Connection.ATTRIBUTE_PROTOCOL).get() == ConnectionProtocol.PLAY;
     }
-
-    @Unique
-    private static String kryptonfnp$resolveKey(Packet<?> packet) {
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            net.minecraft.resources.ResourceLocation id = cp.getIdentifier();
-            return "custom:" + id.getNamespace() + "/" + id.getPath();
-        }
-        if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            net.minecraft.resources.ResourceLocation id = sp.getIdentifier();
-            return "custom:" + id.getNamespace() + "/" + id.getPath();
-        }
-        return packet.getClass().getSimpleName();
-    }
-
-    @Unique
-    private static String kryptonfnp$resolveModId(Packet<?> packet) {
-        if (packet instanceof ClientboundCustomPayloadPacket cp) {
-            return cp.getIdentifier().getNamespace();
-        }
-        if (packet instanceof ServerboundCustomPayloadPacket sp) {
-            return sp.getIdentifier().getNamespace();
-        }
-        String pkg = packet.getClass().getPackageName();
-        if (pkg.startsWith("net.minecraft.")) return "minecraft";
-        String[] parts = pkg.split("\\.", 4);
-        return parts.length >= 3 ? parts[2] : "unknown";
-    }
 }
-

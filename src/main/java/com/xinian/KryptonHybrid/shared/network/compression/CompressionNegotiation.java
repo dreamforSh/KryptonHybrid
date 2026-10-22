@@ -23,6 +23,11 @@ import net.minecraftforge.network.NetworkRegistry;
  * token and equals the peer's token (same dictionary id). A vanilla, Paper or proxy
  * peer never advertises the channel, so it always gets vanilla zlib.</p>
  *
+ * <p>With a dictionary the token also names the frame layout ({@link #DICT_FRAMES}):
+ * dictionary frames are magicless and large packets use standard frames without the
+ * dictionary. A peer built before that layout advertises the bare token, so the two
+ * fall back to zlib instead of misreading each other's frames.</p>
+ *
  * <p>The channel accepts any peer version (including absent), so it never blocks a
  * connection by itself.</p>
  */
@@ -31,6 +36,8 @@ public final class CompressionNegotiation {
 
     private static final String ZLIB_TOKEN = "zlib";
     private static final String ZSTD_TOKEN_PREFIX = "zstd;dict=";
+    /** Frame layout of dictionary connections; see {@code ZstdUtil#FRAME_MAGIC}. */
+    private static final String DICT_FRAMES = ";frames=split";
 
     private CompressionNegotiation() {}
 
@@ -48,7 +55,10 @@ public final class CompressionNegotiation {
             return ZLIB_TOKEN;
         }
         long dictId = ZstdUtil.negotiableDictionaryId();
-        return dictId < 0L ? ZLIB_TOKEN : ZSTD_TOKEN_PREFIX + dictId;
+        if (dictId < 0L) {
+            return ZLIB_TOKEN;
+        }
+        return dictId == 0L ? ZSTD_TOKEN_PREFIX + "0" : ZSTD_TOKEN_PREFIX + dictId + DICT_FRAMES;
     }
 
     /**
