@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.shared.network.security;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.util.concurrent.ScheduledFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +26,11 @@ import java.util.concurrent.TimeUnit;
  *       dead connections.</li>
  * </ul>
  *
+ * <p>A read timeout only measures silence, so a peer sending a byte every few seconds
+ * would never time out. The HANDSHAKE stage therefore also has an absolute deadline of
+ * twice its timeout: a login has left it by then, and a status ping (which never leaves
+ * it) is long done.</p>
+ *
  * <p>The handler is inserted by {@code ServerConnectionListenerMixin} and starts
  * in HANDSHAKE stage.  Other mixins (or pipeline events) call
  * {@link #advanceStage(ChannelHandlerContext, Stage)} to update the timeout.</p>
@@ -43,11 +49,39 @@ public class HandshakeTimeoutHandler extends ReadTimeoutHandler {
 
     private volatile Stage currentStage = Stage.HANDSHAKE;
 
+    /** Absolute HANDSHAKE-stage deadline; cancelled when this handler is replaced or removed. */
+    private ScheduledFuture<?> handshakeDeadline;
+
     /**
      * Creates a handler starting in HANDSHAKE stage.
      */
     public HandshakeTimeoutHandler() {
         super(KryptonConfig.securityHandshakeTimeoutSec, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+        super.handlerAdded(ctx);
+        if (this.currentStage == Stage.HANDSHAKE && KryptonConfig.securityEnabled) {
+            long deadlineSec = 2L * Math.max(1, KryptonConfig.securityHandshakeTimeoutSec);
+            this.handshakeDeadline = ctx.executor().schedule(() -> {
+                if (KryptonConfig.securityEnabled && ctx.channel().isOpen()
+                        && ctx.pipeline().get(HANDLER_NAME) == this) {
+                    SecurityMetrics.INSTANCE.recordTimeout();
+                    LOGGER.debug("[Krypton Security] Handshake deadline passed for {}", ctx.channel().remoteAddress());
+                    ctx.close();
+                }
+            }, deadlineSec, TimeUnit.SECONDS);
+        }
+    }
+
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        if (this.handshakeDeadline != null) {
+            this.handshakeDeadline.cancel(false);
+            this.handshakeDeadline = null;
+        }
+        super.handlerRemoved(ctx);
     }
 
     @Override

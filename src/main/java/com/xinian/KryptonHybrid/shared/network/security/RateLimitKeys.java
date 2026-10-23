@@ -4,14 +4,25 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.ProxyMode;
 import io.netty.channel.Channel;
 
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 
 /**
  * Resolves the per-IP bucket key used by {@link ConnectionRateLimiter} and
- * {@link StatusRequestGuard}.
+ * {@link StatusRequestGuard}. IPv6 sources are grouped by their /64 prefix: a single
+ * host usually holds a whole /64 and could otherwise pick a fresh address (and a fresh
+ * budget) for every connection.
  */
 final class RateLimitKeys {
+    /**
+     * Most addresses tracked at once per limiter. Beyond it, after evicting idle ones,
+     * new addresses are let through untracked rather than refused: only a source with
+     * more addresses than this could get there, and per-IP limits cannot stop that.
+     */
+    static final int MAX_TRACKED_ADDRESSES = 65_536;
+
     private RateLimitKeys() {}
 
     /**
@@ -30,6 +41,17 @@ final class RateLimitKeys {
         }
         if (KryptonConfig.proxyMode != ProxyMode.NONE) {
             return null;
+        }
+        if (address instanceof Inet6Address) {
+            byte[] bytes = address.getAddress();
+            for (int i = 8; i < bytes.length; i++) {
+                bytes[i] = 0;
+            }
+            try {
+                return InetAddress.getByAddress(bytes).getHostAddress() + "/64";
+            } catch (UnknownHostException e) {
+                return address.getHostAddress();
+            }
         }
         return address.getHostAddress();
     }
