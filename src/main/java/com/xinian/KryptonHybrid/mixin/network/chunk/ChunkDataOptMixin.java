@@ -18,9 +18,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.List;
 
 /**
- * Optimizes {@link ClientboundLevelChunkPacketData} serialization with two
- * complementary techniques: <strong>Biome delta encoding</strong> and
- * <strong>Heightmap compression</strong>.
+ * Optimizes {@link ClientboundLevelChunkPacketData} serialization with
+ * <strong>Biome delta encoding</strong>, <strong>Heightmap compression</strong> and,
+ * for clients that support it, <strong>byte-aligned block data</strong>.
  *
  * <h3>Heightmap compression</h3>
  * <p>Replaces NBT-based heightmap serialization with a compact binary format
@@ -40,10 +40,11 @@ import java.util.List;
  *
  * <h3>Wire format</h3>
  * <pre>
- *   [0x4B]  Krypton chunk-data marker (1 byte)
+ *   [0x4B]  Krypton chunk-data marker (1 byte), or [0x4C] when the block data is
+ *           byte-aligned (see {@link ChunkDataCodec#alignBlocks})
  *
  *   --- Heightmaps (binary + XOR-delta) ---
- *   VarInt  entry_count
+ *   VarInt  entry_count  (0 for clients that compute them, see ChunkDataCodec#computeHeightmaps)
  *   Per entry:
  *     UTF-8  key
  *     VarInt long_count
@@ -51,7 +52,8 @@ import java.util.List;
  *
  *   --- Block data (sections without biomes) ---
  *   VarInt  blocks_buffer_length
- *   byte[]  blocks_buffer  (per section: short + PalettedContainer&lt;BlockState&gt;)
+ *   byte[]  blocks_buffer  (per section: short + PalettedContainer&lt;BlockState&gt;,
+ *                           byte-aligned with 0x4C)
  *
  *   --- Biome data (compact) ---
  *   VarInt  section_count
@@ -74,9 +76,6 @@ import java.util.List;
  */
 @Mixin(ClientboundLevelChunkPacketData.class)
 public abstract class ChunkDataOptMixin {
-
-    /** Krypton chunk-data marker byte. Never collides with vanilla NBT (starts with TAG_Compound = 0x0A). */
-    @Unique private static final int KRYPTON_MARKER = 0x4B;
 
     @Accessor("heightmaps") abstract CompoundTag krypton$heightmaps();
     @Accessor("buffer") abstract byte[] krypton$buffer();
@@ -114,25 +113,42 @@ public abstract class ChunkDataOptMixin {
                 || !KryptonWireFormat.canWriteCurrentChunkData()
                 || this.krypton$sectionCount <= 0) return;
 
-        buf.writeByte(KRYPTON_MARKER);
-
-        ChunkDataCodec.writeHeightmaps(buf, this.krypton$heightmaps());
-
         byte[] buffer = this.krypton$buffer();
         FriendlyByteBuf blocksBuf = new FriendlyByteBuf(Unpooled.buffer(buffer.length));
         FriendlyByteBuf biomesBuf = new FriendlyByteBuf(Unpooled.buffer(this.krypton$sectionCount * 4));
+        FriendlyByteBuf alignedBuf = null;
         try {
             ChunkDataCodec.splitSectionBuffer(buffer, this.krypton$sectionCount, blocksBuf, biomesBuf);
 
-            int blocksLen = blocksBuf.readableBytes();
+            // Byte-aligned block data when the client supports it and every section has
+            // the expected layout; otherwise the vanilla block data.
+            FriendlyByteBuf blocks = blocksBuf;
+            if (KryptonWireFormat.canWriteCurrentAlignedChunkBlocks()) {
+                alignedBuf = new FriendlyByteBuf(Unpooled.buffer(blocksBuf.readableBytes() * 2));
+                if (ChunkDataCodec.alignBlocks(blocksBuf.duplicate(), this.krypton$sectionCount, alignedBuf)) {
+                    blocks = alignedBuf;
+                }
+            }
+
+            buf.writeByte(blocks == alignedBuf ? ChunkDataCodec.ALIGNED_BLOCKS_MARKER : ChunkDataCodec.MARKER);
+            if (KryptonWireFormat.canWriteCurrentClientHeightmaps()) {
+                buf.writeVarInt(0); // no heightmaps: the client computes them from the blocks
+            } else {
+                ChunkDataCodec.writeHeightmaps(buf, this.krypton$heightmaps());
+            }
+
+            int blocksLen = blocks.readableBytes();
             buf.writeVarInt(blocksLen);
-            buf.writeBytes(blocksBuf, blocksLen);
+            buf.writeBytes(blocks, blocksLen);
 
             buf.writeVarInt(this.krypton$sectionCount);
             buf.writeBytes(biomesBuf, biomesBuf.readableBytes());
         } finally {
             blocksBuf.release();
             biomesBuf.release();
+            if (alignedBuf != null) {
+                alignedBuf.release();
+            }
         }
 
         buf.writeCollection(this.krypton$blockEntitiesData(), (packetBuf, info) ->

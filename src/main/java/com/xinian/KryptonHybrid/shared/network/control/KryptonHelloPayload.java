@@ -16,11 +16,15 @@ public record KryptonHelloPayload(int featureFlags) {
     public static final int FEATURE_CHUNK_DATA = 1;
     public static final int FEATURE_LIGHT_DATA = 1 << 1;
     public static final int FEATURE_BLOCK_ENTITY_DELTA = 1 << 2;
+    /** Chunk data with byte-aligned block data ({@code ChunkDataCodec#ALIGNED_BLOCKS_MARKER}). */
+    public static final int FEATURE_CHUNK_ALIGNED_BLOCKS = 1 << 3;
+    /** Chunk data without heightmaps; the client computes them ({@code ChunkDataCodec#computeHeightmaps}). */
+    public static final int FEATURE_CHUNK_CLIENT_HEIGHTMAPS = 1 << 4;
 
     public static KryptonHelloPayload current() {
         int flags = 0;
         if (KryptonConfig.chunkOptEnabled) {
-            flags |= FEATURE_CHUNK_DATA;
+            flags |= FEATURE_CHUNK_DATA | FEATURE_CHUNK_ALIGNED_BLOCKS | FEATURE_CHUNK_CLIENT_HEIGHTMAPS;
         }
         if (KryptonConfig.lightOptEnabled) {
             flags |= FEATURE_LIGHT_DATA;
@@ -49,5 +53,13 @@ public record KryptonHelloPayload(int featureFlags) {
 
     public boolean supportsBlockEntityDelta() {
         return (this.featureFlags & FEATURE_BLOCK_ENTITY_DELTA) != 0;
+    }
+
+    public boolean supportsChunkAlignedBlocks() {
+        return (this.featureFlags & FEATURE_CHUNK_ALIGNED_BLOCKS) != 0;
+    }
+
+    public boolean supportsChunkClientHeightmaps() {
+        return (this.featureFlags & FEATURE_CHUNK_CLIENT_HEIGHTMAPS) != 0;
     }
 }

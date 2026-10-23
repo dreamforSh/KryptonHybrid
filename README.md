@@ -78,10 +78,10 @@ For each block DataLayer: same as above
 **Wire format** (`ClientboundLevelChunkPacketData`):
 
 ```
-[0x4B]            – Krypton chunk-data marker (1 byte)
+[0x4B]            – Krypton chunk-data marker (1 byte); 0x4C = byte-aligned block data
 
 ──── Heightmaps (binary + XOR-delta) ────
-VarInt  entry_count
+VarInt  entry_count               (0 = client computes them)
 Per entry:
   UTF-8  key
   VarInt long_count
@@ -105,6 +105,11 @@ LIST_STREAM_CODEC (unchanged vanilla encoding)
 |---|---|---|
 | XOR-delta heightmaps | Adjacent columns correlate → many near-zero longs | Better Zstd/zlib ratio + ~40 B NBT overhead eliminated |
 | Biome stream split | Biome data grouped; single-value sections compacted | Single-value: 2 B vs. 3+ B; cross-section redundancy exploited |
+| Byte-aligned block data (`0x4C`) | 5–8-bit sections: one byte per palette index instead of bit-packed longs; 4-bit sections: longs little-endian | Indices no longer straddle bytes, so the compressor finds repeated patterns |
+
+**Byte-aligned block data.** Vanilla packs block-state palette indices into longs; indices wider than 4 bits straddle byte boundaries, so the same block pattern becomes different bytes depending on where it starts. For clients that advertise it (`FEATURE_CHUNK_ALIGNED_BLOCKS` in the hello), the server rewrites each section's block data: 5–8-bit sections as 4 096 raw index bytes, 4-bit sections as little-endian longs (indices in byte order); single-value and global-palette sections are unchanged. The client restores vanilla longs before `LevelChunkSection.read()`. On a test world (973 overworld chunks) this made chunk packets 7.5 % smaller after Zstd level 6 (6.8 % with zlib) for about 0.04 ms of extra work per chunk on each side. Older clients keep receiving `0x4B`.
+
+**Client-computed heightmaps.** The client's `WORLD_SURFACE` and `MOTION_BLOCKING` heightmaps follow from the block data, so for clients that advertise `FEATURE_CHUNK_CLIENT_HEIGHTMAPS` the server sends an empty heightmap list. The client scans each column top-down with the heightmaps' own block predicates, writes the result in vanilla's raw format and hands it to the vanilla packet constructor, so `LevelChunk.replaceWithPacketData` applies it as usual. On the test world the computed `WORLD_SURFACE` matched the server's saved heightmap in all 973 chunks, took about 0.08 ms per chunk, and leaving the heightmaps out made chunk packets another 6.6 % smaller.
 
 ---
 

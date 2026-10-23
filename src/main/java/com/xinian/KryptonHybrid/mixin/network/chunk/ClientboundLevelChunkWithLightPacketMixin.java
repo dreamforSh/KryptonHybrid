@@ -8,6 +8,9 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkPacketData;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.Heightmap;
 import com.xinian.KryptonHybrid.shared.network.chunk.ChunkDataCodec;
 import com.xinian.KryptonHybrid.shared.network.util.VarIntUtil;
 import org.spongepowered.asm.mixin.Mixin;
@@ -25,10 +28,12 @@ import java.util.List;
  * <p>Intercepts both {@code new ClientboundLevelChunkPacketData(buf, x, z)} and
  * {@code new ClientboundLightUpdatePacketData(buf, x, z)} constructor calls inside the
  * {@link ClientboundLevelChunkWithLightPacket} buffer-reading constructor via
- * {@code @Redirect}. If the buffer begins with the Krypton marker ({@code 0x4B}),
- * the compressed data is decoded into a temporary vanilla-format buffer, which is
- * then handed to the original vanilla constructor. If the marker is absent (vanilla
- * server or optimization disabled), the vanilla constructor is called directly.</p>
+ * {@code @Redirect}. If the buffer begins with the Krypton marker ({@code 0x4B}, or
+ * {@code 0x4C} for chunk data with byte-aligned block data), the compressed data is
+ * decoded into a temporary vanilla-format buffer, which is then handed to the original
+ * vanilla constructor. If the marker is absent (vanilla server or optimization disabled),
+ * the vanilla constructor is called directly. When the server sent no heightmaps, the
+ * ones vanilla sends are computed from the block data before that.</p>
  */
 @Mixin(ClientboundLevelChunkWithLightPacket.class)
 public abstract class ClientboundLevelChunkWithLightPacketMixin {
@@ -54,10 +59,11 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
             )
     )
     private ClientboundLevelChunkPacketData readChunkData$krypton(FriendlyByteBuf buf, int x, int z) {
-        if (buf.getUnsignedByte(buf.readerIndex()) != KRYPTON_MARKER) {
+        int marker = buf.getUnsignedByte(buf.readerIndex());
+        if (marker != ChunkDataCodec.MARKER && marker != ChunkDataCodec.ALIGNED_BLOCKS_MARKER) {
             return new ClientboundLevelChunkPacketData(buf, x, z);
         }
-        buf.readByte(); // consume 0x4B marker
+        buf.readByte(); // consume the marker
 
         // --- Heightmaps (XOR-delta ??CompoundTag) ---
         CompoundTag heightmaps = ChunkDataCodec.readHeightmaps(buf);
@@ -86,8 +92,28 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         byte[] biomesData = new byte[biomesLen];
         buf.readBytes(biomesData);
 
+        // --- Byte-aligned block data back to vanilla longs ---
+        if (marker == ChunkDataCodec.ALIGNED_BLOCKS_MARKER) {
+            ByteBuf vanillaBlocks = Unpooled.buffer(blocksData.length);
+            try {
+                ChunkDataCodec.unalignBlocks(Unpooled.wrappedBuffer(blocksData), sectionCount, vanillaBlocks);
+                blocksData = new byte[vanillaBlocks.readableBytes()];
+                vanillaBlocks.readBytes(blocksData);
+            } finally {
+                vanillaBlocks.release();
+            }
+        }
+
         // --- Merge blocks + biomes into vanilla section buffer ---
         byte[] vanillaBuffer = ChunkDataCodec.mergeSectionBuffer(blocksData, biomesData, sectionCount);
+
+        // --- No heightmaps sent: compute the ones vanilla sends from the blocks ---
+        if (heightmaps.isEmpty()) {
+            long[][] computed = ChunkDataCodec.computeHeightmaps(vanillaBuffer, sectionCount,
+                    stateId -> krypton$heightmapFlags(stateId));
+            heightmaps.putLongArray(Heightmap.Types.WORLD_SURFACE.getSerializationKey(), computed[0]);
+            heightmaps.putLongArray(Heightmap.Types.MOTION_BLOCKING.getSerializationKey(), computed[1]);
+        }
 
         // --- Block entities: decode from original buf, re-encode to vanilla buf ---
         List<ClientboundLevelChunkPacketData.BlockEntityInfo> blockEntities =
@@ -105,6 +131,23 @@ public abstract class ClientboundLevelChunkWithLightPacketMixin {
         } finally {
             vanillaBuf.release();
         }
+    }
+
+    /** Which client heightmaps a block state counts for, by the heightmaps' own predicates. */
+    @Unique
+    private static int krypton$heightmapFlags(int stateId) {
+        BlockState state = Block.BLOCK_STATE_REGISTRY.byId(stateId);
+        if (state == null) {
+            return 0;
+        }
+        int flags = 0;
+        if (Heightmap.Types.WORLD_SURFACE.isOpaque().test(state)) {
+            flags |= ChunkDataCodec.HEIGHTMAP_WORLD_SURFACE;
+        }
+        if (Heightmap.Types.MOTION_BLOCKING.isOpaque().test(state)) {
+            flags |= ChunkDataCodec.HEIGHTMAP_MOTION_BLOCKING;
+        }
+        return flags;
     }
 
     // ================================================================
