@@ -167,6 +167,15 @@ public final class ZstdUtil {
                 failDictionary("dictionary file not found: " + path);
                 return;
             }
+            if (!Files.isRegularFile(path)) {
+                failDictionary("dictionary path is not a regular file: " + path);
+                return;
+            }
+            long fileSize = Files.size(path);
+            if (fileSize > MAX_DICTIONARY_FILE_BYTES) {
+                failDictionary("dictionary file is too large: " + fileSize + " bytes (max " + MAX_DICTIONARY_FILE_BYTES + ")");
+                return;
+            }
 
             byte[] bytes = Files.readAllBytes(path);
             if (bytes.length < 64) {
@@ -368,6 +377,9 @@ public final class ZstdUtil {
      * these bytes, because its first byte would have the reserved header bit set.
      */
     public static final int FRAME_MAGIC = 0xFD2FB528;
+
+    /** Dictionaries are tens of kilobytes; a larger file is not one (and is read on a game thread). */
+    private static final long MAX_DICTIONARY_FILE_BYTES = 16L * 1024 * 1024;
 
     /** Whether the frame at {@code buf}'s reader index is a standard frame (no dictionary). */
     public static boolean isStandardFrame(ByteBuf buf) {

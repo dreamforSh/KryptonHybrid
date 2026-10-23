@@ -780,11 +780,10 @@ public final class KryptonForgeConfig {
 
         velocityForwardingSecret = builder
                 .comment(
-                        "Shared secret for Velocity Modern Forwarding.",
-                        "Must match the forwarding-secret in Velocity's velocity.toml.",
-                        "When non-empty and mode is AUTO or VELOCITY, the server will",
-                        "verify connecting players via HMAC-SHA256 signed forwarding data.",
-                        "Leave empty to disable modern forwarding (heuristic detection only).",
+                        "Not used: Krypton Hybrid does not handle proxy player forwarding and",
+                        "does not verify forwarding data. Use a forwarding mod for that, and keep",
+                        "the backend unreachable except through the proxy. Kept so existing",
+                        "config files still load.",
                         "Default: (empty)"
                 )
                 .define("forwarding_secret", "");
@@ -850,8 +849,10 @@ public final class KryptonForgeConfig {
         KryptonConfig.securityMaxProtocolVersion = securityMaxProtocolVersion.get();
         KryptonConfig.securityMaxHandshakeAddressLength = securityMaxHandshakeAddressLength.get();
         KryptonConfig.securityAnomalyStrikeThreshold = securityAnomalyStrikeThreshold.get();
-        KryptonConfig.securityWriteWatermarkLow = securityWriteWatermarkLow.get();
-        KryptonConfig.securityWriteWatermarkHigh = securityWriteWatermarkHigh.get();
+        // Netty rejects low > high, which would fail every new connection; keep the high mark.
+        int watermarkHigh = securityWriteWatermarkHigh.get();
+        KryptonConfig.securityWriteWatermarkLow = Math.min(securityWriteWatermarkLow.get(), watermarkHigh);
+        KryptonConfig.securityWriteWatermarkHigh = watermarkHigh;
         KryptonConfig.securityMaxPendingWrites = securityMaxPendingWrites.get();
         KryptonConfig.securityMaxUnwritableSeconds = securityMaxUnwritableSeconds.get();
         KryptonConfig.lightOptEnabled      = lightOptEnabled.get();
@@ -875,6 +876,11 @@ public final class KryptonForgeConfig {
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
         KryptonConfig.proxyMode                = proxyMode.get();
         KryptonConfig.velocityForwardingSecret = velocityForwardingSecret.get();
+        if (!KryptonConfig.velocityForwardingSecret.isEmpty()) {
+            com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap.LOGGER.warn(
+                    "[Krypton] proxy.forwarding_secret is set but not used: Krypton Hybrid does not verify "
+                            + "proxy forwarding. Use a forwarding mod and keep the backend reachable only through the proxy.");
+        }
     }
 }
 
