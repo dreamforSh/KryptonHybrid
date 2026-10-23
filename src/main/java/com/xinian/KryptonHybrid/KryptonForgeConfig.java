@@ -401,7 +401,9 @@ public final class KryptonForgeConfig {
         securityMaxCustomPayloadBytes = builder
                 .defineInRange("custom_payload_max_bytes", 128 * 1024, 0, Integer.MAX_VALUE);
         securityReadLimitsEnabled = builder
-                .comment("Enable FriendlyByteBuf read-side hard limits (can break large mod custom payloads).", "Default: false")
+                .comment("Hard limits on strings, byte arrays, collections and maps in packets the server",
+                        "receives (not what clients read from the server). Can reject large serverbound",
+                        "mod payloads.", "Default: false")
                 .define("read_limits_enabled", false);
         securityMaxStringChars = builder
                 .defineInRange("string_max_chars", 32_767, 1, Integer.MAX_VALUE);

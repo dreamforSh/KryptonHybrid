@@ -365,5 +365,6 @@
   "gui.krypton_hybrid.dash.strip.flush": "%1$s pkts/flush",
   "gui.krypton_hybrid.dash.meter.flush": "Flushes saved",
   "gui.krypton_hybrid.dash.meter.flush.desc": "Share of network flushes avoided by holding a tick's packets and flushing each player once, compared with flushing every packet on its own. Higher is better.",
-  "command.krypton_hybrid.stats.cache": "§7Broadcast cache: serialize §a%1$s%%§7 hit (§f%2$s§7) | compressed §a%3$s%%§7 hit (§f%4$s§7)"
+  "command.krypton_hybrid.stats.cache": "§7Broadcast cache: serialize §a%1$s%%§7 hit (§f%2$s§7) | compressed §a%3$s%%§7 hit (§f%4$s§7)",
+  "config.krypton_hybrid.security.packet_size.read_limits_enabled.desc": "Hard limits on strings, byte arrays, collections and maps in packets the server receives (not what clients read from the server). Can reject large mod payloads sent by clients. Off by default."
 }

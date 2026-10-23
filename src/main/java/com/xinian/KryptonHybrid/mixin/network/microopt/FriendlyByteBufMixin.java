@@ -1,10 +1,8 @@
 package com.xinian.KryptonHybrid.mixin.network.microopt;
 
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
-import com.xinian.KryptonHybrid.shared.network.security.SecurityMetrics;
+import com.xinian.KryptonHybrid.shared.network.security.InboundReadLimits;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.EncoderException;
 import net.minecraft.network.codec.StreamDecoder;
 import com.xinian.KryptonHybrid.shared.network.util.VarIntUtil;
@@ -19,9 +17,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
@@ -88,127 +83,44 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
         cir.setReturnValue(VarIntUtil.readVarInt(this.source));
     }
 
-    @Inject(method = "readUtf(I)Ljava/lang/String;", at = @At("HEAD"))
-    private void readUtf$kryptonGuard(int maxLength, CallbackInfoReturnable<String> cir) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
-        }
-        int hardLimit = KryptonConfig.securityMaxStringChars;
-        if (maxLength > hardLimit) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("String maxLength " + maxLength + " exceeds security limit " + hardLimit);
+    // ------------------------------------------------------------------
+    //  Security read limits (server inbound only; see InboundReadLimits).
+    //  Strings, the static readByteArray and ByteBufCodecs counts are checked
+    //  where every path ends up (Utf8StringReadLimitMixin, below, ByteBufCodecsReadLimitMixin).
+    // ------------------------------------------------------------------
+
+    @Inject(method = "readByteArray(Lio/netty/buffer/ByteBuf;I)[B", at = @At("HEAD"))
+    private static void readByteArray$kryptonGuard(ByteBuf buffer, int maxSize, CallbackInfoReturnable<byte[]> cir) {
+        if (InboundReadLimits.active()) {
+            InboundReadLimits.checkByteArray(buffer);
         }
     }
 
-    @Inject(method = "readByteArray(I)[B", at = @At("HEAD"), cancellable = true)
-    private void readByteArray$kryptonGuard(int maxLength, CallbackInfoReturnable<byte[]> cir) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
+    @Inject(method = "readCollection", at = @At("HEAD"))
+    private void readCollection$kryptonGuard(IntFunction<?> collectionFactory,
+                                             StreamDecoder<? super FriendlyByteBuf, ?> elementReader,
+                                             CallbackInfoReturnable<?> cir) {
+        if (InboundReadLimits.active()) {
+            InboundReadLimits.checkCollection(this.source);
         }
-
-        int effectiveMax = Math.min(maxLength, KryptonConfig.securityMaxByteArrayBytes);
-        int size = VarIntUtil.readVarInt(this.source);
-        if (size > effectiveMax) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("ByteArray with size " + size + " exceeds security max " + effectiveMax);
-        }
-
-        byte[] out = new byte[size];
-        this.source.readBytes(out);
-        cir.setReturnValue(out);
     }
 
-    @Inject(method = "readCollection", at = @At("HEAD"), cancellable = true)
-    private <T, C extends Collection<T>> void readCollection$kryptonGuard(
-            IntFunction<C> collectionFactory,
-            StreamDecoder<? super FriendlyByteBuf, T> elementReader,
-            CallbackInfoReturnable<C> cir) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
+    @Inject(method = "readMap(Ljava/util/function/IntFunction;Lnet/minecraft/network/codec/StreamDecoder;Lnet/minecraft/network/codec/StreamDecoder;)Ljava/util/Map;",
+            at = @At("HEAD"))
+    private void readMap$kryptonGuard(IntFunction<?> mapFactory,
+                                      StreamDecoder<? super FriendlyByteBuf, ?> keyReader,
+                                      StreamDecoder<? super FriendlyByteBuf, ?> valueReader,
+                                      CallbackInfoReturnable<?> cir) {
+        if (InboundReadLimits.active()) {
+            InboundReadLimits.checkMap(this.source);
         }
-
-        int count = VarIntUtil.readVarInt(this.source);
-        int max = KryptonConfig.securityMaxCollectionElements;
-        if (count < 0 || count > max) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("Collection with size " + count + " exceeds security max " + max);
-        }
-
-        C collection = collectionFactory.apply(count);
-        FriendlyByteBuf self = (FriendlyByteBuf) (Object) this;
-        for (int i = 0; i < count; i++) {
-            collection.add(elementReader.decode(self));
-        }
-        cir.setReturnValue(collection);
     }
 
-    @Inject(method = "readMap(Ljava/util/function/IntFunction;Lnet/minecraft/network/codec/StreamDecoder;Lnet/minecraft/network/codec/StreamDecoder;)Ljava/util/Map;", at = @At("HEAD"), cancellable = true)
-    private <K, V, M extends Map<K, V>> void readMap$kryptonGuard(
-            IntFunction<M> mapFactory,
-            StreamDecoder<? super FriendlyByteBuf, K> keyReader,
-            StreamDecoder<? super FriendlyByteBuf, V> valueReader,
-            CallbackInfoReturnable<M> cir) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
-        }
-
-        int count = VarIntUtil.readVarInt(this.source);
-        int max = KryptonConfig.securityMaxMapEntries;
-        if (count < 0 || count > max) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("Map with size " + count + " exceeds security max " + max);
-        }
-
-        M map = mapFactory.apply(count);
-        FriendlyByteBuf self = (FriendlyByteBuf) (Object) this;
-        for (int i = 0; i < count; i++) {
-            map.put(keyReader.decode(self), valueReader.decode(self));
-        }
-        cir.setReturnValue(map);
-    }
-
-    @Inject(method = "readMap(Lnet/minecraft/network/codec/StreamDecoder;Lnet/minecraft/network/codec/StreamDecoder;)Ljava/util/Map;", at = @At("HEAD"), cancellable = true)
-    private <K, V> void readMapSimple$kryptonGuard(
-            StreamDecoder<? super FriendlyByteBuf, K> keyReader,
-            StreamDecoder<? super FriendlyByteBuf, V> valueReader,
-            CallbackInfoReturnable<Map<K, V>> cir) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
-        }
-
-        int count = VarIntUtil.readVarInt(this.source);
-        int max = KryptonConfig.securityMaxMapEntries;
-        if (count < 0 || count > max) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("Map with size " + count + " exceeds security max " + max);
-        }
-
-        Map<K, V> map = new HashMap<>(Math.max(1, count));
-        FriendlyByteBuf self = (FriendlyByteBuf) (Object) this;
-        for (int i = 0; i < count; i++) {
-            map.put(keyReader.decode(self), valueReader.decode(self));
-        }
-        cir.setReturnValue(map);
-    }
-
-    @Inject(method = "readWithCount", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "readWithCount", at = @At("HEAD"))
     private void readWithCount$kryptonGuard(Consumer<FriendlyByteBuf> reader, CallbackInfo ci) {
-        if (!KryptonConfig.securityEnabled || !KryptonConfig.securityReadLimitsEnabled) {
-            return;
+        if (InboundReadLimits.active()) {
+            InboundReadLimits.checkCounted(this.source);
         }
-
-        int count = VarIntUtil.readVarInt(this.source);
-        int max = KryptonConfig.securityMaxCountedElements;
-        if (count < 0 || count > max) {
-            SecurityMetrics.INSTANCE.recordReadLimitRejected();
-            throw new DecoderException("Counted section size " + count + " exceeds security max " + max);
-        }
-
-        FriendlyByteBuf self = (FriendlyByteBuf) (Object) this;
-        for (int i = 0; i < count; i++) {
-            reader.accept(self);
-        }
-        ci.cancel();
     }
 
     /**
