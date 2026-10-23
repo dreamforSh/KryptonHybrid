@@ -90,6 +90,17 @@ dependencies {
     implementation fileTree(dir: 'libs', includes: ['*.jar'])
     implementation "com.github.luben:zstd-jni:${zstd_jni_version}"
     zstdJniJar "com.github.luben:zstd-jni:${zstd_jni_version}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
+    // Minecraft's log4j config writes logs/ into the working directory; keep it out of the project root.
+    def testRunDir = layout.buildDirectory.dir('test-run').get().asFile
+    workingDir = testRunDir
+    doFirst { testRunDir.mkdirs() }
 }
 
 def zstdVersion = zstd_jni_version

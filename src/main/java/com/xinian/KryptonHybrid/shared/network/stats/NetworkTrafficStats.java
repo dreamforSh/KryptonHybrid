@@ -49,6 +49,9 @@ public final class NetworkTrafficStats {
     // Tick batching: packets written by the collectors, and packets coalescing dropped first.
     private final LongAdder batchedPackets = new LongAdder();
     private final LongAdder coalesceDroppedPackets = new LongAdder();
+    // Batch frames: frames sent, and the packets they carried.
+    private final LongAdder batchFrames = new LongAdder();
+    private final LongAdder batchFramePackets = new LongAdder();
     private final ConcurrentHashMap<String, TypeStats> perTypeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perModStats  = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perTypeWireStats = new ConcurrentHashMap<>();
@@ -149,6 +152,8 @@ public final class NetworkTrafficStats {
         deferredPackets.reset();
         batchedPackets.reset();
         coalesceDroppedPackets.reset();
+        batchFrames.reset();
+        batchFramePackets.reset();
         perTypeStats.clear();
         perModStats.clear();
         perTypeWireStats.clear();
@@ -177,6 +182,21 @@ public final class NetworkTrafficStats {
     public long getDeferredPackets() { return deferredPackets.sum(); }
     public long getBatchedPackets() { return batchedPackets.sum(); }
     public long getCoalesceDroppedPackets() { return coalesceDroppedPackets.sum(); }
+
+    /** One batch frame carrying {@code packets} packets. */
+    public void recordBatchFrame(int packets) {
+        batchFrames.increment();
+        batchFramePackets.add(packets);
+    }
+
+    public long getBatchFrames() { return batchFrames.sum(); }
+    public long getBatchFramePackets() { return batchFramePackets.sum(); }
+
+    /** Average packets per batch frame. */
+    public double getPacketsPerBatchFrame() {
+        long frames = batchFrames.sum();
+        return frames == 0 ? 0.0 : (double) batchFramePackets.sum() / (double) frames;
+    }
 
     /** Average packets sent per consolidated flush. */
     public double getPacketsPerFlush() {

@@ -33,6 +33,16 @@ Krypton Hybrid replaces Minecraft's default zlib codec by injecting into `Connec
 | Multi-threaded | `workers` ≥ 1 activates native thread pool |
 | Dictionary | Optional `.zdict` pre-trained file, used for packets up to `dict_max_packet_bytes` (larger ones are compressed without it). Load failures are logged; with `dict_required` Zstd is not offered (zlib), otherwise plain Zstd is used. See [Zstd dictionary training guide](docs/zstd-dictionary-training.md). |
 | Advanced tuning | `overlap_log`, `job_size`, `strategy`, `LDM` + `window_log` |
+| Batch frames | Optional (`batch_frames.enabled`, off by default): the server sends all packets of one flush to a Krypton Hybrid client as one Zstd frame |
+
+#### Batch frames
+
+Without batching every packet is its own frame, and packets below the compression threshold (256 bytes by default; entity movement, block updates, …) are sent uncompressed. With `batch_frames.enabled` the server holds the packets written between two flushes and compresses them together into one frame; the client splits it back into single packets before vanilla's packet decoder, so the rest of the pipeline and other mods still see one packet at a time, in order. With `tick_flush` that is one frame per player per tick.
+
+- Server → client only, and only to clients that agreed during login (Krypton Hybrid with Zstd, same dictionary, no proxy).
+- A packet flushed on its own, a packet above `max_packet_bytes`, and chunk / light packets at or above the threshold (served by the compressed broadcast cache) leave as single frames, after the packets held before them.
+- A batch is capped at `max_batch_bytes` uncompressed; if compressing it would not beat sending its packets as single frames, they are sent as single frames.
+- `/krypton stats` shows how many batch frames were sent and how many packets they carried.
 
 > **Both server and client must use the same algorithm.** A mismatch corrupts the session immediately.
 

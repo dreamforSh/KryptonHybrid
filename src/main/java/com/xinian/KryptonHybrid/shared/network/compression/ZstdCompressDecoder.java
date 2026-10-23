@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.shared.network.compression;
 import com.github.luben.zstd.ZstdDecompressCtx;
 import com.github.luben.zstd.ZstdException;
 import com.xinian.KryptonHybrid.shared.network.security.DecompressionBombGuard;
+import com.xinian.KryptonHybrid.shared.network.util.VarIntUtil;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -66,6 +67,12 @@ import static com.google.common.base.Preconditions.checkState;
  *       {@code -Dkrypton.permit-oversized-packets=true})</li>
  * </ul>
  *
+ * <h3>Batch frames</h3>
+ * <p>On a client connection whose server agreed to {@link BatchFrames}, a frame with a
+ * negative size carries several packets; they are passed on one by one, in order. Every
+ * length is checked before the first packet is passed on. Anywhere else a batch frame is
+ * a protocol error.</p>
+ *
  * @see ZstdCompressEncoder
  * @see ZstdUtil#createDecompressor()
  */
@@ -84,6 +91,8 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
     /** Magicless dictionary frames, or {@code null} without a dictionary. */
     private final ZstdDecompressCtx dictDecompressor;
     private final boolean validate;
+    /** Whether {@link BatchFrames} may arrive: client side, and the server agreed. */
+    private final boolean batchFrames;
     private int threshold;
 
     /** Grow-only scratch buffer for compressed input without a backing array (allocated on first use). */
@@ -100,19 +109,26 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
      * @param dictDecompressor a per-channel context for magicless dictionary frames (see
      *                     {@link ZstdUtil#createDictionaryDecompressor}), or {@code null}
      *                     when the connection has no dictionary
+     * @param batchFrames  whether {@link BatchFrames} may arrive on this connection
      */
     public ZstdCompressDecoder(int threshold, boolean validate, ZstdDecompressCtx decompressor,
-                               ZstdDecompressCtx dictDecompressor) {
+                               ZstdDecompressCtx dictDecompressor, boolean batchFrames) {
         this.threshold = threshold;
         this.validate = validate;
         this.decompressor = decompressor;
         this.dictDecompressor = dictDecompressor;
+        this.batchFrames = batchFrames;
     }
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
         FriendlyByteBuf bb = new FriendlyByteBuf(in);
         int claimedUncompressedSize = bb.readVarInt();
+
+        if (claimedUncompressedSize < 0) {
+            kryptonDecodeBatch(ctx, in, claimedUncompressedSize, out);
+            return;
+        }
 
         if (claimedUncompressedSize == 0) {
             // --- Uncompressed packet: pass through ---
@@ -157,80 +173,97 @@ public class ZstdCompressDecoder extends MessageToMessageDecoder<ByteBuf> {
             DecompressionBombGuard.validate(compressedSize, claimedUncompressedSize, ctx.channel());
         }
 
+        out.add(kryptonDecompress(ctx, in, claimedUncompressedSize));
+    }
+
+    /**
+     * Splits a {@link BatchFrames batch frame} back into its packets. Every length is
+     * checked first, so a malformed frame passes nothing on.
+     */
+    private void kryptonDecodeBatch(ChannelHandlerContext ctx, ByteBuf in, int sizeMarker, List<Object> out)
+            throws Exception {
+        checkState(batchFrames, "Unexpected batch frame: this connection did not agree to batch frames");
+        int size = -sizeMarker;
+        checkState(size > 0 && size <= UNCOMPRESSED_CAP, "Batch frame size %s out of range", size);
+
+        ByteBuf content = kryptonDecompress(ctx, in, size);
+        try {
+            int count = 0;
+            while (content.isReadable()) {
+                int length = VarIntUtil.readVarInt(content);
+                checkState(length > 0 && length <= content.readableBytes(),
+                        "Bad packet length %s in batch frame", length);
+                checkState(++count <= BatchFrames.MAX_PACKETS, "Too many packets in batch frame");
+                content.skipBytes(length);
+            }
+
+            content.readerIndex(0);
+            while (content.isReadable()) {
+                int length = VarIntUtil.readVarInt(content);
+                out.add(content.readRetainedSlice(length));
+            }
+        } finally {
+            content.release();
+        }
+    }
+
+    /**
+     * Decompresses the rest of {@code in}, which must yield exactly {@code size} bytes, into
+     * a new direct buffer owned by the caller.
+     */
+    private ByteBuf kryptonDecompress(ChannelHandlerContext ctx, ByteBuf in, int size) throws Exception {
+        int compressedSize = in.readableBytes();
+
         // With a dictionary, frames compressed with it are magicless and the rest (large
         // packets) are standard frames; the magic number tells them apart.
         ZstdDecompressCtx zstd = dictDecompressor != null && !ZstdUtil.isStandardFrame(in)
                 ? dictDecompressor
                 : decompressor;
 
-        // --- Fast path: direct input ??direct output, zero-copy ---
-        if (in.isDirect() && in.nioBufferCount() == 1) {
-            ByteBuf result = ctx.alloc().directBuffer(claimedUncompressedSize);
-            try {
-                ByteBuffer nioIn  = in.nioBuffer(in.readerIndex(), compressedSize);
-                ByteBuffer nioOut = result.nioBuffer(0, claimedUncompressedSize);
-
-                int actualDecompressed;
-                try {
-                    actualDecompressed = zstd.decompressDirectByteBuffer(
-                            nioOut, 0, claimedUncompressedSize,
-                            nioIn,  0, compressedSize);
-                } catch (ZstdException e) {
-                    throw new Exception("Zstd decompression failed: " + e.getMessage(), e);
-                }
-
-                checkState(actualDecompressed == claimedUncompressedSize,
-                        "Zstd decompressed size %s does not match claimed size %s",
-                        actualDecompressed, claimedUncompressedSize);
-
-                in.skipBytes(compressedSize);
-                result.writerIndex(claimedUncompressedSize);
-                out.add(result);
-                result = null; // ownership transferred to out
-            } finally {
-                if (result != null) {
-                    result.release(); // cleanup on exception
-                }
-            }
-            return;
-        }
-
-        // --- Heap input (e.g. the client's vanilla cipher output): decompress straight
-        // from its backing array, or one scratch copy, into the direct output buffer ---
-        byte[] src;
-        int srcOffset;
-        if (in.hasArray()) {
-            src = in.array();
-            srcOffset = in.arrayOffset() + in.readerIndex();
-        } else {
-            if (scratchIn == null || scratchIn.length < compressedSize) {
-                scratchIn = new byte[Math.max(8192, compressedSize)];
-            }
-            in.getBytes(in.readerIndex(), scratchIn, 0, compressedSize);
-            src = scratchIn;
-            srcOffset = 0;
-        }
-
-        ByteBuf result = ctx.alloc().directBuffer(claimedUncompressedSize);
+        ByteBuf result = ctx.alloc().directBuffer(size);
         try {
-            ByteBuffer nioOut = result.nioBuffer(0, claimedUncompressedSize);
+            ByteBuffer nioOut = result.nioBuffer(0, size);
             int actualDecompressed;
             try {
-                actualDecompressed = zstd.decompressByteArrayToDirectByteBuffer(
-                        nioOut, 0, claimedUncompressedSize,
-                        src, srcOffset, compressedSize);
+                if (in.isDirect() && in.nioBufferCount() == 1) {
+                    // --- Fast path: direct input → direct output, zero-copy ---
+                    ByteBuffer nioIn = in.nioBuffer(in.readerIndex(), compressedSize);
+                    actualDecompressed = zstd.decompressDirectByteBuffer(
+                            nioOut, 0, size,
+                            nioIn,  0, compressedSize);
+                } else {
+                    // --- Heap input (e.g. the client's vanilla cipher output): decompress
+                    // straight from its backing array, or one scratch copy ---
+                    byte[] src;
+                    int srcOffset;
+                    if (in.hasArray()) {
+                        src = in.array();
+                        srcOffset = in.arrayOffset() + in.readerIndex();
+                    } else {
+                        if (scratchIn == null || scratchIn.length < compressedSize) {
+                            scratchIn = new byte[Math.max(8192, compressedSize)];
+                        }
+                        in.getBytes(in.readerIndex(), scratchIn, 0, compressedSize);
+                        src = scratchIn;
+                        srcOffset = 0;
+                    }
+                    actualDecompressed = zstd.decompressByteArrayToDirectByteBuffer(
+                            nioOut, 0, size,
+                            src, srcOffset, compressedSize);
+                }
             } catch (ZstdException e) {
                 throw new Exception("Zstd decompression failed: " + e.getMessage(), e);
             }
 
-            checkState(actualDecompressed == claimedUncompressedSize,
+            checkState(actualDecompressed == size,
                     "Zstd decompressed size %s does not match claimed size %s",
-                    actualDecompressed, claimedUncompressedSize);
+                    actualDecompressed, size);
 
             in.skipBytes(compressedSize);
-            result.writerIndex(claimedUncompressedSize);
-            out.add(result);
-            result = null; // ownership transferred to out
+            result.writerIndex(size);
+            ByteBuf decompressed = result;
+            result = null; // ownership transferred to the caller
+            return decompressed;
         } finally {
             if (result != null) {
                 result.release(); // cleanup on exception

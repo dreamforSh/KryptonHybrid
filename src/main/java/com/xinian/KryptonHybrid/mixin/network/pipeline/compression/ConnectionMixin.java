@@ -96,11 +96,15 @@ public class ConnectionMixin {
                         ci.cancel();
                         return;
                     }
+                    // Batch frames only go from the server (validate = true) to the client.
+                    boolean batchFrames = CompressionNegotiation.supportsBatchFrames((Connection) (Object) this);
                     ZstdCompressEncoder zstdEncoder =
-                            new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor(), dictionary);
+                            new ZstdCompressEncoder(compressionThreshold, ZstdUtil.createCompressor(), dictionary,
+                                    batchFrames && validate);
                     ZstdCompressDecoder zstdDecoder =
                             new ZstdCompressDecoder(compressionThreshold, validate, ZstdUtil.createDecompressor(),
-                                    dictionary == null ? null : ZstdUtil.createDictionaryDecompressor(dictionary));
+                                    dictionary == null ? null : ZstdUtil.createDictionaryDecompressor(dictionary),
+                                    batchFrames && !validate);
 
                     this.kryptonfnp$channel().pipeline().addBefore("decoder", "decompress", zstdDecoder);
                     this.kryptonfnp$channel().pipeline().addBefore("encoder", "compress", zstdEncoder);

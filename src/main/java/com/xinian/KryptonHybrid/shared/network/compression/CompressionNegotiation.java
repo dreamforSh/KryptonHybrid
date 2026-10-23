@@ -42,6 +42,12 @@ import java.lang.reflect.Field;
  * dictionary. A peer built before that layout advertises the bare token, so the two
  * fall back to zlib instead of misreading each other's frames.</p>
  *
+ * <p>Every Zstd token of this build also ends with {@link #BATCH_FRAMES}: this side can
+ * decode {@link BatchFrames}. A peer built before them advertises the token without it,
+ * so the two fall back to zlib like for any other mismatch; the token is compared as a
+ * whole on both sides, so they always reach the same decision. Whether the server
+ * actually sends batch frames is up to its {@code batch_frames.enabled}.</p>
+ *
  * <p>The channel accepts any peer version (including absent), so it never blocks a
  * connection by itself.</p>
  */
@@ -52,6 +58,8 @@ public final class CompressionNegotiation {
     private static final String ZSTD_TOKEN_PREFIX = "zstd;dict=";
     /** Frame layout of dictionary connections; see {@code ZstdUtil#FRAME_MAGIC}. */
     private static final String DICT_FRAMES = ";frames=split";
+    /** Batch frames can be decoded; see {@link BatchFrames}. */
+    private static final String BATCH_FRAMES = ";batch";
 
     /** The token peers are being sent. */
     private static volatile String advertised = ZLIB_TOKEN;
@@ -118,7 +126,8 @@ public final class CompressionNegotiation {
         if (dictId < 0L) {
             return ZLIB_TOKEN;
         }
-        return dictId == 0L ? ZSTD_TOKEN_PREFIX + "0" : ZSTD_TOKEN_PREFIX + dictId + DICT_FRAMES;
+        return (dictId == 0L ? ZSTD_TOKEN_PREFIX + "0" : ZSTD_TOKEN_PREFIX + dictId + DICT_FRAMES)
+                + BATCH_FRAMES;
     }
 
     /**
@@ -126,15 +135,29 @@ public final class CompressionNegotiation {
      * the same Zstd token during the login handshake.
      */
     public static boolean shouldUseZstd(Connection connection) {
+        return agreedZstdToken(connection) != null;
+    }
+
+    /**
+     * Returns {@code true} when the Zstd token both sides agreed on says they can decode
+     * {@link BatchFrames}.
+     */
+    public static boolean supportsBatchFrames(Connection connection) {
+        String agreed = agreedZstdToken(connection);
+        return agreed != null && agreed.endsWith(BATCH_FRAMES);
+    }
+
+    /** The Zstd token both sides advertised, or {@code null} when they did not agree on one. */
+    private static String agreedZstdToken(Connection connection) {
         String local = advertised;
         if (!local.startsWith(ZSTD_TOKEN_PREFIX)) {
-            return false;
+            return null;
         }
         ConnectionData data = NetworkHooks.getConnectionData(connection);
         if (data == null) {
-            return false;
+            return null;
         }
-        return local.equals(data.getChannels().get(CHANNEL));
+        return local.equals(data.getChannels().get(CHANNEL)) ? local : null;
     }
 
     /** "local=..., peer=..." for logs. */

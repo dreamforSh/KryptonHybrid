@@ -4,6 +4,7 @@ import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.common.ForgeConfigSpec;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.ProxyMode;
+import com.xinian.KryptonHybrid.shared.network.compression.BatchFrames;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -99,6 +100,9 @@ public final class KryptonForgeConfig {
     private final ForgeConfigSpec.BooleanValue                    tickFlushEnabled;
     private final ForgeConfigSpec.BooleanValue                    microBatchFlushEnabled;
     private final ForgeConfigSpec.IntValue                        microBatchFlushDelayMs;
+    private final ForgeConfigSpec.BooleanValue                    batchFramesEnabled;
+    private final ForgeConfigSpec.IntValue                        batchFramesMaxPacketBytes;
+    private final ForgeConfigSpec.IntValue                        batchFramesMaxBatchBytes;
     private final ForgeConfigSpec.BooleanValue                    motionDeltaEnabled;
     private final ForgeConfigSpec.IntValue                        motionDeltaThreshold;
     private final ForgeConfigSpec.BooleanValue                    packetCoalescingEnabled;
@@ -638,6 +642,40 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
+                "Batch Frames",
+                "Sends all packets of one flush to a player as a single compressed frame",
+                "instead of one frame per packet, so small packets (entity movement, block",
+                "updates), which are otherwise sent uncompressed, are compressed together.",
+                "Only the server sends them, and only to clients that run Krypton Hybrid with",
+                "Zstd; the client splits the frame back into packets. Works best with",
+                "tick_flush, which flushes each player once per tick."
+        ).push("batch_frames");
+
+        batchFramesEnabled = builder
+                .comment("Enable batch frames.", "Default: false")
+                .define("enabled", false);
+
+        batchFramesMaxPacketBytes = builder
+                .comment(
+                        "Packets larger than this are sent in a frame of their own, after the",
+                        "packets held before them. Chunk and light packets at or above the",
+                        "compression threshold always are, so the compressed broadcast cache",
+                        "keeps working.",
+                        "Range: 256 - 1048576  |  Default: 16384"
+                )
+                .defineInRange("max_packet_bytes", 16384, 256, BatchFrames.MAX_BATCH_BYTES);
+
+        batchFramesMaxBatchBytes = builder
+                .comment(
+                        "Uncompressed size of one batch frame. A full batch is sent and a new",
+                        "one started.",
+                        "Range: 4096 - 1048576  |  Default: 262144"
+                )
+                .defineInRange("max_batch_bytes", 256 * 1024, 4096, BatchFrames.MAX_BATCH_BYTES);
+
+        builder.pop();
+
+        builder.comment(
                 "Motion Delta Filter",
                 "Drops redundant motion (velocity) packets when the encoded delta is",
                 "below a visual threshold for the same entity/player pair. A velocity",
@@ -797,6 +835,9 @@ public final class KryptonForgeConfig {
         KryptonConfig.tickFlushEnabled         = tickFlushEnabled.get();
         KryptonConfig.microBatchFlushEnabled   = microBatchFlushEnabled.get();
         KryptonConfig.microBatchFlushDelayMs   = microBatchFlushDelayMs.get();
+        KryptonConfig.batchFramesEnabled       = batchFramesEnabled.get();
+        KryptonConfig.batchFramesMaxPacketBytes = batchFramesMaxPacketBytes.get();
+        KryptonConfig.batchFramesMaxBatchBytes = batchFramesMaxBatchBytes.get();
         KryptonConfig.motionDeltaEnabled       = motionDeltaEnabled.get();
         KryptonConfig.motionDeltaThreshold     = motionDeltaThreshold.get();
         KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();

@@ -125,6 +125,12 @@ public final class KryptonStatsCommand {
                 String.format("%.1f", stats.getPacketsPerFlush()),
                 String.format("%.1f", stats.getFlushSavingRate() * 100.0),
                 String.format("%,d", stats.getCoalesceDroppedPackets())), false);
+        if (KryptonConfig.batchFramesEnabled || stats.getBatchFrames() > 0) {
+            source.sendSuccess(t("command.krypton_hybrid.stats.batch_frames",
+                    String.format("%,d", stats.getBatchFrames()),
+                    String.format("%,d", stats.getBatchFramePackets()),
+                    String.format("%.1f", stats.getPacketsPerBatchFrame())), false);
+        }
         source.sendSuccess(t("command.krypton_hybrid.stats.cache",
                 cacheRate(BroadcastSerializationCache.hits(), BroadcastSerializationCache.misses()),
                 String.format("%,d", BroadcastSerializationCache.hits()),

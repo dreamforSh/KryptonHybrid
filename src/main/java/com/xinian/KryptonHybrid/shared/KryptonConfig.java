@@ -126,6 +126,21 @@ public final class KryptonConfig {
     /** Maximum serialized packet size accepted by the sample recorder. */
     public static volatile int zstdDictTrainingMaxBytes = 256 * 1024;
 
+    // --- Batch frames ---
+
+    /**
+     * If {@code true}, the server sends the packets of each flush as one compressed frame
+     * to clients that agreed to batch frames (Krypton Hybrid with Zstd).
+     * Default: {@code false}.
+     */
+    public static volatile boolean batchFramesEnabled = false;
+
+    /** Packets larger than this leave in a frame of their own. Default: 16384. */
+    public static volatile int batchFramesMaxPacketBytes = 16384;
+
+    /** Uncompressed size of one batch frame; a full batch is sent and a new one started. */
+    public static volatile int batchFramesMaxBatchBytes = 256 * 1024;
+
     // --- Network security / independent packet control ---
 
     /** Global security kill-switch (off by default). */
