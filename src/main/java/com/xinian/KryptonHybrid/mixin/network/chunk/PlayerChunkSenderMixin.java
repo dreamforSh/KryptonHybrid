@@ -71,11 +71,13 @@ public abstract class PlayerChunkSenderMixin {
 
     @Inject(method = "sendNextChunks", at = @At("HEAD"))
     private void krypton$sendNextChunksHead(ServerPlayer player, CallbackInfo ci) {
-        // Exception recovery in case a previous send path failed before RETURN.
-        AutoFlushUtil.setAutoFlush(player.connection.getConnection(), true);
-
-        this.krypton$sendChunksAutoFlushActive = true;
-        AutoFlushUtil.setAutoFlush(player.connection.getConnection(), false);
+        // Hold the flush only if no window does already (the whole-tick window releases
+        // this connection right after, in Connection.tick). A hold left behind by an
+        // exception is released by the next outermost window (FlushWindows).
+        this.krypton$sendChunksAutoFlushActive = AutoFlushUtil.isAutoFlushing(player);
+        if (this.krypton$sendChunksAutoFlushActive) {
+            AutoFlushUtil.setAutoFlush(player, false);
+        }
 
         this.krypton$hasSendContext = true;
         this.krypton$ctxVelX = player.getDeltaMovement().x;
@@ -88,7 +90,7 @@ public abstract class PlayerChunkSenderMixin {
 
         if (this.krypton$sendChunksAutoFlushActive) {
             this.krypton$sendChunksAutoFlushActive = false;
-            AutoFlushUtil.setAutoFlush(player.connection.getConnection(), true);
+            AutoFlushUtil.setAutoFlush(player, true);
         }
     }
 

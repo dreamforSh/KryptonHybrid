@@ -94,7 +94,6 @@ public final class KryptonForgeConfig {
     private final ModConfigSpec.BooleanValue                    chunkOptEnabled;
     private final ModConfigSpec.BooleanValue                    dccEnabled;
     private final ModConfigSpec.IntValue                        dccSizeLimit;
-    private final ModConfigSpec.IntValue                        dccDistance;
     private final ModConfigSpec.IntValue                        dccTimeoutSeconds;
     private final ModConfigSpec.BooleanValue                    broadcastCacheEnabled;
     private final ModConfigSpec.BooleanValue                    bundleAlwaysCompress;
@@ -571,14 +570,6 @@ public final class KryptonForgeConfig {
                 )
                 .defineInRange("size_limit", 60, 1, 200);
 
-        dccDistance = builder
-                .comment(
-                        "Cache radius (chunks) around the player's current position.",
-                        "Cached chunks farther than this are evicted and untracked.",
-                        "Range: 1 – 32  |  Default: 5"
-                )
-                .defineInRange("distance", 5, 1, 32);
-
         dccTimeoutSeconds = builder
                 .comment(
                         "Seconds before a cached chunk is forcibly evicted.",
@@ -864,7 +855,6 @@ public final class KryptonForgeConfig {
         KryptonConfig.chunkOptEnabled      = chunkOptEnabled.get();
         KryptonConfig.dccEnabled           = dccEnabled.get();
         KryptonConfig.dccSizeLimit         = dccSizeLimit.get();
-        KryptonConfig.dccDistance          = dccDistance.get();
         KryptonConfig.dccTimeoutSeconds    = dccTimeoutSeconds.get();
         KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
         KryptonConfig.bundleAlwaysCompress     = bundleAlwaysCompress.get();

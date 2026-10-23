@@ -49,12 +49,6 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
     @Final
     private ByteBuf source;
 
-    @Shadow
-    public abstract FriendlyByteBuf writeVarInt(int value);
-
-    @Shadow
-    public abstract int readVarInt();
-
 
     /**
      * Use {@link ByteBufUtil#utf8Bytes(CharSequence)} to compute byte length ahead of time
@@ -70,7 +64,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
         if (utf8Bytes > maxLength * 3) {
             throw new EncoderException("String too big (was " + utf8Bytes + " bytes encoded, max " + (maxLength * 3) + ")");
         }
-        this.writeVarInt(utf8Bytes);
+        VarIntUtil.writeVarInt(this.source, utf8Bytes);
         this.writeCharSequence(string, StandardCharsets.UTF_8);
         cir.setReturnValue((FriendlyByteBuf) (Object) this);
     }
@@ -133,7 +127,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
             return;
         }
 
-        int count = this.readVarInt();
+        int count = VarIntUtil.readVarInt(this.source);
         int max = KryptonConfig.securityMaxCollectionElements;
         if (count < 0 || count > max) {
             SecurityMetrics.INSTANCE.recordReadLimitRejected();
@@ -158,7 +152,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
             return;
         }
 
-        int count = this.readVarInt();
+        int count = VarIntUtil.readVarInt(this.source);
         int max = KryptonConfig.securityMaxMapEntries;
         if (count < 0 || count > max) {
             SecurityMetrics.INSTANCE.recordReadLimitRejected();
@@ -182,7 +176,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
             return;
         }
 
-        int count = this.readVarInt();
+        int count = VarIntUtil.readVarInt(this.source);
         int max = KryptonConfig.securityMaxMapEntries;
         if (count < 0 || count > max) {
             SecurityMetrics.INSTANCE.recordReadLimitRejected();
@@ -203,7 +197,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
             return;
         }
 
-        int count = this.readVarInt();
+        int count = VarIntUtil.readVarInt(this.source);
         int max = KryptonConfig.securityMaxCountedElements;
         if (count < 0 || count > max) {
             SecurityMetrics.INSTANCE.recordReadLimitRejected();
@@ -224,26 +218,7 @@ public abstract class FriendlyByteBufMixin extends ByteBuf {
      */
     @Inject(method = "writeVarInt", at = @At("HEAD"), cancellable = true)
     private void writeVarInt$kryptonfnp(int value, CallbackInfoReturnable<FriendlyByteBuf> cir) {
-        if ((value & VarIntUtil.MASK_7_BITS) == 0) {
-            this.source.writeByte(value);
-        } else if ((value & VarIntUtil.MASK_14_BITS) == 0) {
-            this.source.writeShort((value & 0x7F | 0x80) << 8 | (value >>> 7));
-        } else if ((value & VarIntUtil.MASK_21_BITS) == 0) {
-            this.source.writeMedium((value & 0x7F | 0x80) << 16
-                    | ((value >>> 7) & 0x7F | 0x80) << 8
-                    | (value >>> 14));
-        } else if ((value & VarIntUtil.MASK_28_BITS) == 0) {
-            this.source.writeInt((value & 0x7F | 0x80) << 24
-                    | ((value >>> 7) & 0x7F | 0x80) << 16
-                    | ((value >>> 14) & 0x7F | 0x80) << 8
-                    | (value >>> 21));
-        } else {
-            this.source.writeInt((value & 0x7F | 0x80) << 24
-                    | ((value >>> 7) & 0x7F | 0x80) << 16
-                    | ((value >>> 14) & 0x7F | 0x80) << 8
-                    | ((value >>> 21) & 0x7F | 0x80));
-            this.source.writeByte(value >>> 28);
-        }
+        VarIntUtil.writeVarInt(this.source, value);
         cir.setReturnValue((FriendlyByteBuf) (Object) this);
     }
 

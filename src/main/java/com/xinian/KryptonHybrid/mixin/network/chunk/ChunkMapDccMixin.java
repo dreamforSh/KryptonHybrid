@@ -1,5 +1,6 @@
 package com.xinian.KryptonHybrid.mixin.network.chunk;
 
+import net.minecraft.server.level.ChunkHolder;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -20,11 +21,16 @@ import java.util.function.Consumer;
 /**
  * Implements the Delayed Chunk Cache (DCC) optimization for Krypton Hybrid.
  *
- * <p>In NeoForge 1.21.1, {@code ChunkMap.updateChunkTracking} only takes a single
- * {@code ServerPlayer} argument; the multi-arg overload with {@code ChunkPos},
- * {@code MutableObject}, and two booleans was removed. DCC chunk-enter/leave
- * interception is performed inside {@code applyChunkTrackingView} by wrapping
- * {@link ChunkTrackingView#difference} callbacks.</p>
+ * <p>In NeoForge 1.21.1 every change of a player's chunk view goes through
+ * {@code ChunkMap.applyChunkTrackingView}, which diffs the old and new
+ * {@link ChunkTrackingView}. DCC wraps the diff's callbacks: a chunk leaving the view
+ * can stay on the client instead of being dropped, and a chunk entering it again skips
+ * the resend while the client still has it and it has not changed since (see
+ * {@link DelayedChunkCache}).</p>
+ *
+ * <p>Before the view center moves, kept chunks the client could no longer reach are
+ * forgotten, so the "forget" packets arrive before the new center and the client can
+ * still apply them.</p>
  */
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapDccMixin {
@@ -37,12 +43,24 @@ public abstract class ChunkMapDccMixin {
         throw new AssertionError();
     }
 
+    @Shadow
+    protected abstract ChunkHolder getVisibleChunkIfPresent(long pos);
+
+    /** Forgets kept chunks outside the client's range around the coming view center. */
+    @Inject(method = "applyChunkTrackingView", at = @At("HEAD"))
+    private void krypton$evictBeforeCenterMoves(ServerPlayer player, ChunkTrackingView view, CallbackInfo ci) {
+        if (player.level() == this.level && view instanceof ChunkTrackingView.Positioned positioned) {
+            ChunkPos center = positioned.center();
+            DelayedChunkCache.INSTANCE.evictOutsideClientRange(player, this.level.dimension(), center.x, center.z,
+                    ChunkMapDccMixin::dropChunkDeferred);
+        }
+    }
+
     /**
      * Wraps chunk enter/leave callbacks with DCC logic:
-     * - enter callback: skip resend on cache hit
-     * - leave callback: delay untrack/send-forget when cache accepts the chunk
+     * - enter callback: skip the resend on a cache hit
+     * - leave callback: keep the chunk on the client when the cache accepts it
      */
-    @Unique
     @Redirect(
             method = "applyChunkTrackingView",
             at = @At(
@@ -63,39 +81,44 @@ public abstract class ChunkMapDccMixin {
                 oldView,
                 newView,
                 pos -> {
-                    // Cache hit: the client still has this chunk, so skip resend.
-                    if (!DelayedChunkCache.INSTANCE.onChunkEnter(player, dim, pos)) {
-                        this.markChunkPendingToSend(player, pos);
-                    }
-                },
-                pos -> {
-                    // If the chunk was never sent, remove pending state immediately.
-                    if (player.connection.chunkSender.isPending(pos.toLong())) {
-                        krypton$dropChunkNow(player, pos);
+                    ChunkHolder holder = this.getVisibleChunkIfPresent(pos.toLong());
+                    DelayedChunkCache.Result result = DelayedChunkCache.INSTANCE.onChunkEnter(
+                            player, dim, pos, holder == null ? null
+                                    : holder.getFullChunkFuture().getNow(ChunkHolder.UNLOADED_LEVEL_CHUNK).orElse(null));
+                    if (result == DelayedChunkCache.Result.HIT) {
+                        // The client still has this chunk, unchanged: skip the resend.
                         return;
                     }
-
-                    // Otherwise, delay the untrack unless the cache rejects this chunk.
-                    if (!DelayedChunkCache.INSTANCE.onChunkLeave(player, dim, pos)) {
+                    if (result == DelayedChunkCache.Result.STALE) {
+                        // The unwatch was held back when the chunk was kept; the resend
+                        // replaces the client's copy and fires the watch event again.
+                        net.neoforged.neoforge.event.EventHooks.fireChunkUnWatch(player, pos, this.level);
+                    }
+                    this.markChunkPendingToSend(player, pos);
+                },
+                pos -> {
+                    // A chunk that was never sent is just removed from the pending set.
+                    if (player.connection.chunkSender.isPending(pos.toLong())
+                            || !DelayedChunkCache.INSTANCE.onChunkLeave(player, dim, pos)) {
                         krypton$dropChunkNow(player, pos);
                     }
                 }
         );
     }
 
-    @SuppressWarnings("unused")
     @Unique
     private static void krypton$dropChunkNow(ServerPlayer player, ChunkPos chunkPos) {
         net.neoforged.neoforge.event.EventHooks.fireChunkUnWatch(player, chunkPos, player.serverLevel());
         player.connection.chunkSender.dropChunk(player, chunkPos);
     }
 
-    /** Evicts stale DCC cache entries and performs deferred {@code untrackChunk} calls. */
+    /** Evicts stale DCC cache entries and performs the deferred drops. */
     @Inject(method = "tick()V", at = @At("RETURN"))
     private void tick$evictDccCache(CallbackInfo ci) {
         DelayedChunkCache.INSTANCE.tick(this.level.dimension(), this.level.players(), ChunkMapDccMixin::dropChunkDeferred);
     }
 
+    @Unique
     private static void dropChunkDeferred(ServerPlayer player, ChunkPos chunkPos) {
         net.neoforged.neoforge.event.EventHooks.fireChunkUnWatch(player, chunkPos, player.serverLevel());
         player.connection.chunkSender.dropChunk(player, chunkPos);

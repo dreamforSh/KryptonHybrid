@@ -26,7 +26,12 @@ public abstract class LegacyQueryHandlerMixin {
             return;
         }
 
-        if (msg instanceof ByteBuf byteBuf && !StatusRequestGuard.allowLegacyQuery(ctx.channel(), byteBuf.readableBytes())) {
+        // Vanilla only looks at the first read of a connection; only a legacy ping (0xFE)
+        // is charged against the status-ping budget, not a regular handshake.
+        if (msg instanceof ByteBuf byteBuf
+                && byteBuf.isReadable()
+                && byteBuf.getUnsignedByte(byteBuf.readerIndex()) == 0xFE
+                && !StatusRequestGuard.allowLegacyQuery(ctx.channel(), byteBuf.readableBytes())) {
             ReferenceCountUtil.release(msg);
             ctx.close();
             ci.cancel();

@@ -1,6 +1,5 @@
 package com.xinian.KryptonHybrid.mixin.network.pipeline;
 
-import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlPhase;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import com.xinian.KryptonHybrid.shared.network.security.HandshakeTimeoutHandler;
@@ -29,7 +28,8 @@ public class LoginTimeoutAdvanceMixin {
      */
     @Inject(method = "handleLoginAcknowledgement", at = @At("TAIL"))
     private void krypton$advanceToPlayTimeout(CallbackInfo ci) {
-        if (!KryptonConfig.securityEnabled) return;
+        // Not gated on securityEnabled: a timeout handler installed while security was on
+        // must still leave the short LOGIN budget (no-op when none is installed).
         HandshakeTimeoutHandler.advanceStage(
                 this.connection.channel(), HandshakeTimeoutHandler.Stage.PLAY);
         PacketControlState.get(this.connection.channel()).setPhase(PacketControlPhase.CONFIGURATION);

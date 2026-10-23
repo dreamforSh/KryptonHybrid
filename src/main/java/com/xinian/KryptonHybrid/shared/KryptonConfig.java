@@ -269,9 +269,6 @@ public final class KryptonConfig {
     /** Max cached chunks per player; excess departures are untracked immediately. Default: 60. */
     public static volatile int dccSizeLimit = 60;
 
-    /** Cache radius (chunks) from the player; farther entries are evicted. Default: 5. */
-    public static volatile int dccDistance = 5;
-
     /** Seconds before a cached chunk is forcibly evicted and untracked. Default: 30. */
     public static volatile int dccTimeoutSeconds = 30;
 

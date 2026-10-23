@@ -19,10 +19,13 @@
     "network.chunk.ChunkMapDccMixin",
     "network.chunk.ClientboundLevelChunkWithLightPacketMixin",
     "network.chunk.ClientboundLightUpdatePacketMixin",
+    "network.chunk.LevelChunkChangeStampMixin",
+    "network.chunk.PlayerChunkSenderDccMixin",
     "network.chunk.PlayerChunkSenderMixin",
     "network.flushconsolidation.ChunkHolderBroadcastMixin",
     "network.flushconsolidation.ChunkMapFlushMixin",
     "network.flushconsolidation.ConnectionMixin",
+    "network.flushconsolidation.MinecraftServerTickFlushMixin",
     "network.flushconsolidation.ServerChunkCacheBroadcastMixin",
     "network.flushconsolidation.ServerEntityFlushMixin",
     "network.flushconsolidation.TrackedEntityBundleMixin",
@@ -37,6 +40,7 @@
     "network.pipeline.LegacyQueryHandlerMixin",
     "network.pipeline.PacketEncoderMixin",
     "network.pipeline.Varint21FrameDecoderMixin",
+    "network.pipeline.Varint21LengthFieldPrependerMixin",
     "network.pipeline.ServerConnectionListenerMixin",
     "network.pipeline.HandshakeValidatorMixin",
     "network.pipeline.ServerStatusPacketListenerImplMixin",
@@ -53,7 +57,8 @@
     "fastchunkentityaccess.ClientLevelMixin",
     "fastchunkentityaccess.TransientEntitySectionManagerAccessor",
     "network.blockentity.ClientBlockEntityDeltaMixin",
-    "network.pipeline.compression.ClientHandshakeCompressionMixin"
+    "network.pipeline.compression.ClientHandshakeCompressionMixin",
+    "network.pipeline.encryption.ClientHandshakePacketListenerImplMixin"
   ],
   "injectors": {
     "defaultRequire": 1
