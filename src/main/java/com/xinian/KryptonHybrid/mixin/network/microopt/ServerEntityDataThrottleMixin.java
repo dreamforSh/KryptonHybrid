@@ -6,6 +6,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
 import net.minecraft.network.protocol.game.ClientboundUpdateAttributesPacket;
+import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.Entity;
@@ -25,13 +26,18 @@ import java.util.Set;
 
 /**
  * Throttles redundant {@link ClientboundSetEntityDataPacket} broadcasts by filtering
- * unchanged {@link SynchedEntityData.DataValue} entries.
+ * item stack values that did not change.
  *
- * <p>Vanilla already skips {@code set} calls with an equal value; this also drops
- * values that changed and changed back within a tick, and item stacks (which vanilla
- * compares by reference). Each dirty value is serialized into a reused scratch buffer
- * and compared with the bytes last broadcast; a new snapshot is only stored when the
- * value really changed.</p>
+ * <p>Vanilla already skips {@code set} calls with an equal value, except item stacks,
+ * which it compares by reference: setting a copy of the same stack marks it dirty
+ * again. Item stack values are therefore serialized into a reused scratch buffer and
+ * compared with the bytes last broadcast. Every other dirty value is sent as vanilla
+ * does, because a dirty value equal to the last one sent is intentional there: a forced
+ * {@code set(key, value, true)} (display interpolation restarts) or a value set and
+ * reset within a tick to correct the client ({@code Player.stopFallFlying}).</p>
+ *
+ * <p>A value whose encoding fails here is sent unfiltered, so a broken codec still
+ * fails on the player's connection, as in vanilla, rather than on the server thread.</p>
  *
  * <p>{@code trackedDataValues} is still refreshed on every dirty tick, so players that
  * start tracking the entity later get its full current state from {@code addPairing}.</p>
@@ -86,6 +92,16 @@ public abstract class ServerEntityDataThrottleMixin {
     @Unique
     private List<SynchedEntityData.DataValue<?>> krypton$filterUnchanged(
             List<SynchedEntityData.DataValue<?>> dirtyEntries) {
+        boolean hasItemStack = false;
+        for (SynchedEntityData.DataValue<?> entry : dirtyEntries) {
+            if (entry.serializer() == EntityDataSerializers.ITEM_STACK) {
+                hasItemStack = true;
+                break;
+            }
+        }
+        if (!hasItemStack) {
+            return dirtyEntries;
+        }
         Int2ObjectOpenHashMap<byte[]> snapshots = this.krypton$lastBroadcastSnapshots;
         if (snapshots == null) {
             snapshots = new Int2ObjectOpenHashMap<>();
@@ -95,8 +111,18 @@ public abstract class ServerEntityDataThrottleMixin {
         List<SynchedEntityData.DataValue<?>> result = new ArrayList<>(dirtyEntries.size());
 
         for (SynchedEntityData.DataValue<?> entry : dirtyEntries) {
+            if (entry.serializer() != EntityDataSerializers.ITEM_STACK) {
+                result.add(entry);
+                continue;
+            }
             scratch.clear();
-            entry.write(scratch);
+            try {
+                entry.write(scratch);
+            } catch (RuntimeException e) {
+                snapshots.remove(entry.id());
+                result.add(entry);
+                continue;
+            }
             int length = scratch.readableBytes();
 
             byte[] previous = snapshots.get(entry.id());

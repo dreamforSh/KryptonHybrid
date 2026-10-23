@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.mixin.network.pipeline;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
 import net.minecraft.network.Connection;
 import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.PacketEncoder;
@@ -34,6 +35,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  *       and reused for subsequent encodes, skipping all VarInt/NBT/collection
  *       serialization work.</li>
  * </ol>
+ *
+ * <p>The same packet can encode differently per connection: Krypton wire formats
+ * depend on the peer's hello flags (light data, for example). Cached bytes are
+ * therefore tagged with the encoding signature of the connection that produced them
+ * and only reused for connections with the same signature.</p>
  */
 @Mixin(PacketEncoder.class)
 public class PacketEncoderMixin {
@@ -44,7 +50,15 @@ public class PacketEncoderMixin {
     @Unique
     private static final int kryptonfnp$MAX_CACHED_BYTES = 65536;
 
+    /** Signature of a peer that has not sent a hello (yet): vanilla wire formats. */
+    @Unique
+    private static final int kryptonfnp$NO_HELLO = 0xFFFFFF;
+
     @Shadow @Final private PacketFlow flow;
+
+    /** The peer's hello flags once known (they never change afterwards), else -1. */
+    @Unique
+    private int kryptonfnp$signature = -1;
 
     /**
      * HEAD inject: check the broadcast serialization cache before encoding.
@@ -63,7 +77,7 @@ public class PacketEncoderMixin {
         if (!kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
             return;
         }
-        byte[] cached = BroadcastSerializationCache.get(packet);
+        byte[] cached = BroadcastSerializationCache.get(packet, kryptonfnp$signature(ctx));
         if (cached != null) {
             out.writeBytes(cached);
             NetworkTrafficStats.INSTANCE.recordPacket(packet, cached.length);
@@ -91,7 +105,7 @@ public class PacketEncoderMixin {
                 && kryptonfnp$shouldUseBroadcastCache(ctx, packet)) {
             byte[] serialized = new byte[bytes];
             out.getBytes(out.readerIndex(), serialized);
-            BroadcastSerializationCache.put(packet, serialized);
+            BroadcastSerializationCache.put(packet, kryptonfnp$signature(ctx), serialized);
         }
 
         PacketControlContext.clearCurrentChannel();
@@ -115,5 +129,25 @@ public class PacketEncoderMixin {
             return false;
         }
         return ctx.channel().attr(Connection.ATTRIBUTE_PROTOCOL).get() == ConnectionProtocol.PLAY;
+    }
+
+    /**
+     * The peer's hello flags, or {@link #kryptonfnp$NO_HELLO}. On 1.20.1 the hello arrives
+     * during PLAY, so until then the connection gets vanilla formats and that signature;
+     * the flags are only remembered once negotiated.
+     */
+    @Unique
+    private int kryptonfnp$signature(ChannelHandlerContext ctx) {
+        int signature = this.kryptonfnp$signature;
+        if (signature >= 0) {
+            return signature;
+        }
+        PacketControlState state = PacketControlState.get(ctx.channel());
+        if (!state.isHelloNegotiated()) {
+            return kryptonfnp$NO_HELLO;
+        }
+        signature = state.getRemoteFeatureFlags() & 0x7FFFFF;
+        this.kryptonfnp$signature = signature;
+        return signature;
     }
 }

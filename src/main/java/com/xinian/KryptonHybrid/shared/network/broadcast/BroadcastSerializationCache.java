@@ -37,7 +37,10 @@ public final class BroadcastSerializationCache {
     /** Safety cap per thread and tick; entries are normally dropped when the tick ends. */
     private static final int MAX_ENTRIES = 1024;
 
-    private static final ThreadLocalIdentityCache<byte[]> CACHE =
+    /** Serialized bytes and the encoding signature of the connection that produced them. */
+    private record Entry(byte[] bytes, int signature) {}
+
+    private static final ThreadLocalIdentityCache<Entry> CACHE =
             new ThreadLocalIdentityCache<>(MAX_ENTRIES, () -> KryptonConfig.broadcastCacheEnabled);
 
     /**
@@ -68,21 +71,27 @@ public final class BroadcastSerializationCache {
     /**
      * Looks up cached serialized bytes for the given packet instance.
      *
-     * @param packet the Packet object (identity-compared)
-     * @return cached bytes, or {@code null} if not cached
+     * @param packet    the Packet object (identity-compared)
+     * @param signature encoding signature of the connection about to send it; bytes
+     *                  encoded for another signature (another wire format) are not reused
+     * @return cached bytes, or {@code null} if not cached for this signature
      */
-    public static byte[] get(Object packet) {
-        return CACHE.get(packet);
+    public static byte[] get(Object packet, int signature) {
+        Entry entry = CACHE.peek(packet);
+        boolean hit = entry != null && entry.signature() == signature;
+        CACHE.count(hit);
+        return hit ? entry.bytes() : null;
     }
 
     /**
      * Stores the serialized bytes for a packet instance.
      *
-     * @param packet the Packet object (identity key)
-     * @param bytes  the serialized bytes (packet ID + payload)
+     * @param packet    the Packet object (identity key)
+     * @param signature encoding signature of the connection that encoded it
+     * @param bytes     the serialized bytes (packet ID + payload)
      */
-    public static void put(Object packet, byte[] bytes) {
-        CACHE.put(packet, bytes);
+    public static void put(Object packet, int signature, byte[] bytes) {
+        CACHE.put(packet, new Entry(bytes, signature));
     }
 
     /** Starts a new server tick for both broadcast caches (server thread). */
