@@ -15,7 +15,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import com.xinian.KryptonHybrid.shared.network.chunk.ChunkChangeStamp;
+import net.minecraft.world.level.chunk.ChunkAccess;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -30,7 +33,9 @@ import java.util.function.Consumer;
  *
  * <p>Before the view center moves, kept chunks the client could no longer reach are
  * forgotten, so the "forget" packets arrive before the new center and the client can
- * still apply them.</p>
+ * still apply them. When the player leaves the level (disconnect, dimension change,
+ * respawn) nothing is kept and kept chunks are dropped, so NeoForge's watch and unwatch
+ * events stay paired.</p>
  */
 @Mixin(ChunkMap.class)
 public abstract class ChunkMapDccMixin {
@@ -46,13 +51,31 @@ public abstract class ChunkMapDccMixin {
     @Shadow
     protected abstract ChunkHolder getVisibleChunkIfPresent(long pos);
 
-    /** Forgets kept chunks outside the client's range around the coming view center. */
+    /**
+     * Forgets kept chunks outside the client's range around the coming view center, or
+     * all of them when the player leaves the level.
+     */
     @Inject(method = "applyChunkTrackingView", at = @At("HEAD"))
     private void krypton$evictBeforeCenterMoves(ServerPlayer player, ChunkTrackingView view, CallbackInfo ci) {
-        if (player.level() == this.level && view instanceof ChunkTrackingView.Positioned positioned) {
+        if (player.level() != this.level) {
+            return;
+        }
+        if (view instanceof ChunkTrackingView.Positioned positioned) {
             ChunkPos center = positioned.center();
             DelayedChunkCache.INSTANCE.evictOutsideClientRange(player, this.level.dimension(), center.x, center.z,
                     ChunkMapDccMixin::dropChunkDeferred);
+        } else {
+            DelayedChunkCache.INSTANCE.evictAll(player, this.level.dimension(), ChunkMapDccMixin::dropChunkDeferred);
+        }
+    }
+
+    /** Players keeping these chunks miss the biome resend; mark them changed. */
+    @Inject(method = "resendBiomesForChunks", at = @At("HEAD"))
+    private void krypton$stampBiomeResend(List<ChunkAccess> chunks, CallbackInfo ci) {
+        for (ChunkAccess chunk : chunks) {
+            if (chunk instanceof ChunkChangeStamp stamp) {
+                stamp.krypton$markChanged();
+            }
         }
     }
 
@@ -97,8 +120,10 @@ public abstract class ChunkMapDccMixin {
                     this.markChunkPendingToSend(player, pos);
                 },
                 pos -> {
-                    // A chunk that was never sent is just removed from the pending set.
-                    if (player.connection.chunkSender.isPending(pos.toLong())
+                    // A chunk that was never sent is just removed from the pending set, and
+                    // nothing is kept when the player leaves the level (empty view).
+                    if (!(newView instanceof ChunkTrackingView.Positioned)
+                            || player.connection.chunkSender.isPending(pos.toLong())
                             || !DelayedChunkCache.INSTANCE.onChunkLeave(player, dim, pos)) {
                         krypton$dropChunkNow(player, pos);
                     }

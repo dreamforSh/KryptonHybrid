@@ -100,7 +100,8 @@ public abstract class PlayerChunkSenderMixin {
             ChunkPos playerChunk,
             CallbackInfoReturnable<List<LevelChunk>> cir
     ) {
-        int limit = (int) Math.floor(this.batchQuota);
+        // Like vanilla, a memory connection (integrated server) gets every ready chunk at once.
+        int limit = this.memoryConnection ? Integer.MAX_VALUE : (int) Math.floor(this.batchQuota);
         if (limit <= 0 || this.pendingChunks.isEmpty()) {
             cir.setReturnValue(List.of());
             return;

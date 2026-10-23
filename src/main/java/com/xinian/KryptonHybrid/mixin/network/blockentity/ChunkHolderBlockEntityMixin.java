@@ -74,16 +74,19 @@ public abstract class ChunkHolderBlockEntityMixin {
         }
 
         CompoundTag fullTag = bePacket.getTag();
+        long packedPos = pos.asLong();
         if (fullTag == null || fullTag.isEmpty()) {
-            // Empty tag — send as-is to all players
+            // Empty tag — send as-is to all players. The client records it as its base,
+            // so the next tag must not be a delta against what was sent before.
             for (ServerPlayer player : players) {
+                if (player.connection instanceof BlockEntityDeltaHolder holder) {
+                    holder.krypton$getBlockEntityDeltaCache().evict(packedPos);
+                }
                 krypton$send(player, fullPacket);
             }
             ci.cancel();
             return;
         }
-
-        long packedPos = pos.asLong();
 
         for (ServerPlayer player : players) {
             if (!KryptonWireFormat.canWriteBlockEntityDelta(player.connection.getConnection())) {
@@ -98,7 +101,7 @@ public abstract class ChunkHolderBlockEntityMixin {
             }
 
             BlockEntityDeltaCache cache = holder.krypton$getBlockEntityDeltaCache();
-            CompoundTag deltaOrFull = cache.computeDelta(packedPos, fullTag);
+            CompoundTag deltaOrFull = cache.computeDelta(packedPos, blockEntity, fullTag);
 
             if (deltaOrFull == null) {
                 // Unchanged — skip sending entirely
