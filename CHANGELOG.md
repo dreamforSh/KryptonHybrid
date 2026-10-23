@@ -22,6 +22,10 @@
 
 - Zstd 协商令牌新增批量帧能力标记。本版本与 0.3.10 及更早版本互连时，双方会一致回退到 ZLIB（不会断开，也不会解析出错）；两端都更新后才会使用 Zstd。
 
+### 修复
+
+- **与挂钩 `sendDirtyEntityData` 的模组冲突**（[#12](https://github.com/dreamforSh/KryptonHybrid/issues/12)）：实体数据节流之前在方法开头取消原版方法并自行重写，其他模组注入在方法末尾的逻辑不再执行，例如 Epic Fight 的耐力等扩展数据不再同步。现在只过滤原版构建的实体数据包（全部被过滤时不发送），原版方法照常执行到底；新增 `entity_data_throttle.enabled` 开关。
+
 ### 配置变更
 
 | 配置项 | 变更 |
@@ -29,6 +33,7 @@
 | `batch_frames.enabled` | 新增，默认 `false` |
 | `batch_frames.max_packet_bytes` | 新增，默认 16384 |
 | `batch_frames.max_batch_bytes` | 新增，默认 262144 |
+| `entity_data_throttle.enabled` | 新增，默认 `true` |
 
 ## [0.3.10] - 2026-10-22
 
