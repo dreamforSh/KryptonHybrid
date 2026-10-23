@@ -382,7 +382,7 @@
   "config.krypton_hybrid.security.timeouts.play_sec.desc": "游戏中允许的最长无响应时间。",
   "config.krypton_hybrid.security.packet_size.frame_max_bytes.desc": "单个网络帧的最大大小。",
   "config.krypton_hybrid.security.packet_size.custom_payload_max_bytes.desc": "自定义载荷（模组网络包）的最大大小，0 不限制。",
-  "config.krypton_hybrid.security.packet_size.read_limits_enabled.desc": "对读取字符串、集合等加硬上限。可能会误伤大型模组数据包，默认关闭。",
+  "config.krypton_hybrid.security.packet_size.read_limits_enabled.desc": "对服务器收到的包里的字符串、字节数组、集合和映射加硬上限（不影响客户端读取服务器发来的包）。可能误伤体积大的客户端模组数据包，默认关闭。",
   "config.krypton_hybrid.security.packet_size.string_max_chars.desc": "读取上限开启时，字符串的最大字符数。",
   "config.krypton_hybrid.security.packet_size.collection_max_elements.desc": "读取上限开启时，集合的最大元素数。",
   "config.krypton_hybrid.security.packet_size.map_max_entries.desc": "读取上限开启时，映射的最大条目数。",

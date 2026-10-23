@@ -37,6 +37,7 @@
     "network.microopt.ServerEntityDataThrottleMixin",
     "network.microopt.ServerEntityMixin",
     "network.pipeline.PacketEncoderMixin",
+    "network.readlimit.PacketDecoderReadLimitMixin",
     "network.pipeline.Varint21FrameDecoderMixin",
     "network.pipeline.Varint21LengthFieldPrependerMixin",
     "network.pipeline.ConnectionAccessor",
