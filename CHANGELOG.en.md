@@ -75,6 +75,7 @@ For Minecraft 1.21.1 / NeoForge 21.1. Previous version: 0.2.33. Brings the work 
 
 ### <img src="docs/assets/icons/fixed.svg" width="18" height="18" alt=""> Fixed
 
+- **Conflict with mods that hook `sendDirtyEntityData`** ([#12](https://github.com/dreamforSh/KryptonHybrid/issues/12)): the entity data throttle cancelled the vanilla method at its head and reimplemented it, so other mods' injections at its end no longer ran; Epic Fight, for example, stopped syncing stamina and its other extended data. Only the list returned by `packDirty()` is filtered now and the vanilla method runs to the end. New toggle `entity_data_throttle.enabled`.
 - **Vanilla clients disconnected on mixed servers**: the broadcast serialization cache handed bytes encoded for one connection to other connections on the same network thread. Light updates encoded in Krypton's format for a Krypton client reached vanilla clients, which failed to decode them and disconnected. Cached bytes now carry the encoding signature of the connection (NeoForge connection type and the peer's hello flags) and are only reused for the same signature.
 - **Disconnect on bundles with too many packets**: the packets collected in one tick are split into bundles of at most 4096. The client disconnects on a larger bundle, for example when thousands of signs change in one tick.
 - **Security read limits**:
@@ -134,6 +135,7 @@ For Minecraft 1.21.1 / NeoForge 21.1. Previous version: 0.2.33. Brings the work 
 | `batch_frames.max_packet_bytes` | New, default 16384 |
 | `batch_frames.max_batch_bytes` | New, default 262144 |
 | `tick_flush.enabled` | New, default `true` |
+| `entity_data_throttle.enabled` | New, default `true` |
 | `micro_batch_flush.*` | Only applies when `tick_flush` is off |
 | `proxy.mode` | Anything but `NONE` also skips the per-IP limits |
 | `dcc.distance` | Removed |
