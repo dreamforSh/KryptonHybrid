@@ -7,10 +7,9 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Netty {@link ChannelInboundHandlerAdapter} that limits the rate of new TCP
@@ -37,6 +36,10 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
 
     /** Per-IP connection budget state. */
     private static final Map<String, ConnectionBudget> WINDOWS = new ConcurrentHashMap<>();
+    /** Idle buckets are dropped after this long, unless still quarantined. */
+    private static final long IDLE_EVICT_MS = 60_000L;
+    private static final long EVICT_INTERVAL_MS = 30_000L;
+    private static final AtomicLong NEXT_EVICT_MS = new AtomicLong();
 
     /**
      * Singleton instance shared across all child channels.
@@ -52,22 +55,29 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
             return;
         }
 
-        InetAddress address = extractAddress(ctx);
-        if (address == null) {
-            // Memory connection (singleplayer) ??always allow
+        String ip = RateLimitKeys.of(ctx.channel());
+        if (ip == null) {
+            // Memory connection, loopback, or behind a proxy: not IP-limited
             super.channelActive(ctx);
             return;
         }
 
-        String ip = address.getHostAddress();
+        evictStaleWindowsIfDue();
         ConnectionBudget budget = WINDOWS.computeIfAbsent(ip, k -> new ConnectionBudget());
         if (!budget.tryAcquire()) {
             SecurityMetrics.INSTANCE.recordConnectionRateLimited();
-            LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} (rate={}, burst={}, quarantine={}s)",
-                    ip,
-                    KryptonConfig.securityConnectionRatePerSecond,
-                    KryptonConfig.securityConnectionBurstLimit,
-                    KryptonConfig.securityConnectionQuarantineSeconds);
+            if (budget.shouldLogViolation()) {
+                LOGGER.warn("[Krypton Security] Connection rate limit exceeded for {} (rate={}, burst={}, quarantine={}s)",
+                        ip,
+                        KryptonConfig.securityConnectionRatePerSecond,
+                        KryptonConfig.securityConnectionBurstLimit,
+                        KryptonConfig.securityConnectionQuarantineSeconds);
+            }
+            // Let vanilla's Connection see channelActive first: it only assigns its
+            // channel there, and ServerConnectionListener already holds the Connection.
+            // Closing before that leaves channel == null, so the Connection is never
+            // ticked or removed and its disconnect path throws NPEs.
+            super.channelActive(ctx);
             ctx.close();
             return;
         }
@@ -76,19 +86,21 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
     }
 
     /**
-     * Periodically clean up stale window entries.
-     * Call from a timer or tick event.
+     * Drops buckets of addresses that have been idle for a minute and are not
+     * quarantined. Runs from the connection path at most every 30 s, so the map stays
+     * bounded by the addresses seen recently.
      */
     public static void evictStaleWindows() {
         long now = System.currentTimeMillis();
-        WINDOWS.entrySet().removeIf(e -> now - e.getValue().lastAccessTime() > 60_000L);
+        WINDOWS.values().removeIf(budget -> budget.evictable(now));
     }
 
-    private static InetAddress extractAddress(ChannelHandlerContext ctx) {
-        if (ctx.channel().remoteAddress() instanceof InetSocketAddress inet) {
-            return inet.getAddress();
+    private static void evictStaleWindowsIfDue() {
+        long now = System.currentTimeMillis();
+        long due = NEXT_EVICT_MS.get();
+        if (now >= due && NEXT_EVICT_MS.compareAndSet(due, now + EVICT_INTERVAL_MS)) {
+            evictStaleWindows();
         }
-        return null;
     }
 
     // ?? Sliding window implementation ?????????????????????????????????
@@ -99,6 +111,7 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         private volatile long lastAccess = System.currentTimeMillis();
         private volatile long lastConnectTime;
         private volatile long quarantineUntilMs;
+        private volatile long lastLogMs;
         private int consecutiveViolations;
 
         synchronized boolean tryAcquire() {
@@ -154,8 +167,21 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
             tokens = Math.min(burst, tokens + (elapsed / 1_000_000_000.0D) * rate);
         }
 
+        boolean evictable(long nowMs) {
+            return nowMs - lastAccess > IDLE_EVICT_MS && quarantineUntilMs <= nowMs;
+        }
+
         long lastAccessTime() {
             return lastAccess;
+        }
+
+        synchronized boolean shouldLogViolation() {
+            long nowMs = System.currentTimeMillis();
+            if (nowMs - lastLogMs < 5000L) {
+                return false;
+            }
+            lastLogMs = nowMs;
+            return true;
         }
     }
 }

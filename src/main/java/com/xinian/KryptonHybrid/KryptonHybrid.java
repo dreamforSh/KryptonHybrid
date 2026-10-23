@@ -3,9 +3,15 @@ package com.xinian.KryptonHybrid;
 import com.xinian.KryptonHybrid.command.KryptonStatsCommand;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
+import com.xinian.KryptonHybrid.shared.network.compression.CompressionNegotiation;
 import com.xinian.KryptonHybrid.shared.network.compression.ZstdUtil;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonHelloPayload;
 import com.xinian.KryptonHybrid.shared.network.control.PacketControlState;
+import com.xinian.KryptonHybrid.shared.network.config.ServerConfigSync;
+import com.xinian.KryptonHybrid.shared.network.payload.OpenDashboardPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigRequestPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigSnapshotPayload;
+import com.xinian.KryptonHybrid.shared.network.payload.ServerConfigUpdatePayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotRequestPayload;
 import com.xinian.KryptonHybrid.shared.network.security.MotdCache;
@@ -24,13 +30,19 @@ import net.minecraftforge.network.NetworkEvent;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
+import io.netty.util.Attribute;
+import io.netty.util.AttributeKey;
 
 import java.util.function.Supplier;
 
 @Mod(KryptonHybrid.MODID)
 public final class KryptonHybrid {
     public static final String MODID = "krypton_hybrid";
-    private static final String NETWORK_VERSION = "1";
+    // Bump whenever a Krypton wire format changes, so peers running an older build are
+    // refused at login instead of misparsing packets. 2: compression algorithm is
+    // negotiated. 3: stats snapshot carries status/legacy ping drops, open-dashboard
+    // message. 4: snapshot reports flush consolidation. 5: operator server-config messages.
+    private static final String NETWORK_VERSION = "5";
 
     public static final SimpleChannel NETWORK = NetworkRegistry.newSimpleChannel(
             ResourceLocation.fromNamespaceAndPath(MODID, "main"),
@@ -38,6 +50,14 @@ public final class KryptonHybrid {
             NETWORK_VERSION::equals,
             NETWORK_VERSION::equals
     );
+
+    /** Below the client's own 750 ms cooldown, so a well-behaved client is never dropped. */
+    private static final long STATS_REQUEST_MIN_INTERVAL_MS = 500L;
+    private static final long STATS_SNAPSHOT_REUSE_MS = 250L;
+    private static final AttributeKey<Long> LAST_STATS_REQUEST =
+            AttributeKey.valueOf("krypton_hybrid:last_stats_request");
+    private static StatsSnapshotPayload sharedStatsSnapshot;
+    private static long sharedStatsSnapshotAtMs;
 
     public KryptonHybrid(FMLJavaModLoadingContext context) {
         IEventBus modEventBus = context.getModEventBus();
@@ -47,9 +67,10 @@ public final class KryptonHybrid {
         modEventBus.addListener(this::onConfigReload);
         MinecraftForge.EVENT_BUS.addListener(this::onRegisterCommands);
         registerPackets();
+        CompressionNegotiation.register();
 
         if (FMLEnvironment.dist.isClient()) {
-            com.xinian.KryptonHybrid.client.KryptonStatsClientController.init(modEventBus);
+            com.xinian.KryptonHybrid.client.KryptonStatsClientController.init(context);
         }
 
         KryptonSharedBootstrap.run(FMLEnvironment.dist.isClient());
@@ -95,6 +116,67 @@ public final class KryptonHybrid {
                 .decoder(StatsSnapshotRequestPayload::decode)
                 .consumerMainThread(KryptonHybrid::handleStatsSnapshotRequest)
                 .add();
+        NETWORK.messageBuilder(OpenDashboardPayload.class, 3, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(OpenDashboardPayload::encode)
+                .decoder(OpenDashboardPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleOpenDashboard)
+                .add();
+        NETWORK.messageBuilder(ServerConfigRequestPayload.class, 4, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ServerConfigRequestPayload::encode)
+                .decoder(ServerConfigRequestPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigRequest)
+                .add();
+        NETWORK.messageBuilder(ServerConfigSnapshotPayload.class, 5, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(ServerConfigSnapshotPayload::encode)
+                .decoder(ServerConfigSnapshotPayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigSnapshot)
+                .add();
+        NETWORK.messageBuilder(ServerConfigUpdatePayload.class, 6, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ServerConfigUpdatePayload::encode)
+                .decoder(ServerConfigUpdatePayload::decode)
+                .consumerMainThread(KryptonHybrid::handleServerConfigUpdate)
+                .add();
+    }
+
+    /** Operators read the server's network config; everyone else gets a permission error. */
+    private static void handleServerConfigRequest(ServerConfigRequestPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        ServerPlayer sender = ctx.getSender();
+        if (sender != null) {
+            NETWORK.send(PacketDistributor.PLAYER.with(() -> sender), ServerConfigSync.snapshot(sender, null));
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    /** Applies an operator's changes (permission re-checked) and answers with the result. */
+    private static void handleServerConfigUpdate(ServerConfigUpdatePayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        ServerPlayer sender = ctx.getSender();
+        if (sender != null) {
+            String error = ServerConfigSync.apply(sender, payload.changes());
+            NETWORK.send(PacketDistributor.PLAYER.with(() -> sender), ServerConfigSync.snapshot(sender, error));
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    private static void handleServerConfigSnapshot(ServerConfigSnapshotPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientPayloadRegistration.handleServerConfig(payload);
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    private static void handleOpenDashboard(OpenDashboardPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
+        NetworkEvent.Context ctx = ctxSupplier.get();
+        if (FMLEnvironment.dist.isClient()) {
+            com.xinian.KryptonHybrid.client.KryptonStatsClientPayloadRegistration.handleOpenDashboard();
+        }
+        ctx.setPacketHandled(true);
+    }
+
+    public static void openDashboard(ServerPlayer player) {
+        NETWORK.send(PacketDistributor.PLAYER.with(() -> player), OpenDashboardPayload.INSTANCE);
     }
 
     private static void handleStatsSnapshot(StatsSnapshotPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
@@ -125,17 +207,40 @@ public final class KryptonHybrid {
     }
 
     /**
-     * Server-side handler for the client's snapshot request. Builds and pushes
-     * a fresh {@link StatsSnapshotPayload} back to the sender. Open to any
-     * connected player so the HUD auto-refresh works without op permission.
+     * Server-side handler for the client's snapshot request. Pushes a
+     * {@link StatsSnapshotPayload} back to the sender. Open to any connected
+     * player so the HUD auto-refresh works without op permission, so it is
+     * throttled per connection on the server (the client's own cooldown can be
+     * bypassed) and the snapshot is shared between requests.
      */
     private static void handleStatsSnapshotRequest(StatsSnapshotRequestPayload payload, Supplier<NetworkEvent.Context> ctxSupplier) {
         NetworkEvent.Context ctx = ctxSupplier.get();
         ServerPlayer sender = ctx.getSender();
-        if (sender != null) {
-            sendStatsSnapshot(sender, StatsSnapshotPayload.current());
+        if (sender != null && allowStatsRequest(sender)) {
+            sendStatsSnapshot(sender, sharedStatsSnapshot());
         }
         ctx.setPacketHandled(true);
+    }
+
+    private static boolean allowStatsRequest(ServerPlayer player) {
+        Attribute<Long> last = player.connection.connection.channel().attr(LAST_STATS_REQUEST);
+        long now = System.currentTimeMillis();
+        Long previous = last.get();
+        if (previous != null && now - previous < STATS_REQUEST_MIN_INTERVAL_MS) {
+            return false;
+        }
+        last.set(now);
+        return true;
+    }
+
+    /** Main thread only (requests are handled via consumerMainThread). */
+    private static StatsSnapshotPayload sharedStatsSnapshot() {
+        long now = System.currentTimeMillis();
+        if (sharedStatsSnapshot == null || now - sharedStatsSnapshotAtMs >= STATS_SNAPSHOT_REUSE_MS) {
+            sharedStatsSnapshot = StatsSnapshotPayload.current();
+            sharedStatsSnapshotAtMs = now;
+        }
+        return sharedStatsSnapshot;
     }
 
     public static void sendStatsSnapshot(ServerPlayer player, StatsSnapshotPayload payload) {

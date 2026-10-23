@@ -3,9 +3,10 @@ package com.xinian.KryptonHybrid.shared;
 /**
  * Proxy compatibility mode for Krypton Hybrid.
  *
- * <p>The current security implementation keeps the setting for configuration
- * compatibility, but proxy-specific mixin behaviour is intentionally not
- * activated in this workspace.</p>
+ * <p>Any mode other than {@link #NONE} keeps the backend link on zlib compression
+ * and disables per-IP connection and status-ping limiting, since every player
+ * arrives from the proxy's address. {@link #AUTO} does not detect a proxy yet; it
+ * behaves like {@link #VELOCITY}.</p>
  */
 public enum ProxyMode {
     NONE,

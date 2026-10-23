@@ -51,7 +51,6 @@ public abstract class ClientboundLightUpdatePacketMixin {
         }
         buf.readByte();
 
-
         BitSet skyYMask     = buf.readBitSet();
         BitSet blockYMask   = buf.readBitSet();
         BitSet emptySky     = buf.readBitSet();

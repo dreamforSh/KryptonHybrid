@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.handshake.ClientIntentionPacket;
 import net.minecraft.server.network.ServerHandshakePacketListenerImpl;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -34,8 +35,15 @@ public abstract class HandshakeValidatorMixin {
 
     @Inject(method = "handleIntention", at = @At("HEAD"), cancellable = true)
     private void krypton$validateHandshake(ClientIntentionPacket packet, CallbackInfo ci) {
-        if (!KryptonConfig.securityEnabled) return;
         Connection connection = this.krypton$getConnection();
+        if (!KryptonConfig.securityEnabled) {
+            // Keep a timeout handler installed while security was on in step with the
+            // connection (no-op when none is installed).
+            if (packet.getIntention() == ConnectionProtocol.LOGIN) {
+                krypton$advanceToLogin(connection);
+            }
+            return;
+        }
 
         // ?? Validate handshake fields ?????????????????????????????????
         HandshakeValidator.ValidationResult result = HandshakeValidator.validate(
@@ -71,7 +79,11 @@ public abstract class HandshakeValidatorMixin {
             return;
         }
 
-        // ?? Advance timeout to LOGIN stage ????????????????????????????
+        krypton$advanceToLogin(connection);
+    }
+
+    @Unique
+    private static void krypton$advanceToLogin(Connection connection) {
         HandshakeTimeoutHandler.advanceStage(
                 connection.channel(), HandshakeTimeoutHandler.Stage.LOGIN);
         PacketControlState.get(connection.channel()).setPhase(PacketControlPhase.LOGIN);

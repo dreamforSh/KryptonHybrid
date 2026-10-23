@@ -100,6 +100,36 @@ public class VarIntUtil {
     }
 
     /**
+     * Writes a VarInt to the given buffer, peeling the common 1- through 4-byte cases
+     * explicitly for better branch prediction and inlining.
+     *
+     * @param buffer the buffer to write to
+     * @param value  the value to encode
+     */
+    public static void writeVarInt(ByteBuf buffer, int value) {
+        if ((value & MASK_7_BITS) == 0) {
+            buffer.writeByte(value);
+        } else if ((value & MASK_14_BITS) == 0) {
+            buffer.writeShort((value & 0x7F | 0x80) << 8 | (value >>> 7));
+        } else if ((value & MASK_21_BITS) == 0) {
+            buffer.writeMedium((value & 0x7F | 0x80) << 16
+                    | ((value >>> 7) & 0x7F | 0x80) << 8
+                    | (value >>> 14));
+        } else if ((value & MASK_28_BITS) == 0) {
+            buffer.writeInt((value & 0x7F | 0x80) << 24
+                    | ((value >>> 7) & 0x7F | 0x80) << 16
+                    | ((value >>> 14) & 0x7F | 0x80) << 8
+                    | (value >>> 21));
+        } else {
+            buffer.writeInt((value & 0x7F | 0x80) << 24
+                    | ((value >>> 7) & 0x7F | 0x80) << 16
+                    | ((value >>> 14) & 0x7F | 0x80) << 8
+                    | ((value >>> 21) & 0x7F | 0x80));
+            buffer.writeByte(value >>> 28);
+        }
+    }
+
+    /**
      * Byte-at-a-time VarInt reader for the slow path.
      * Handles buffers with fewer than 4 readable bytes and 5-byte VarInts.
      */

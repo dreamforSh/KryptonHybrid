@@ -4,6 +4,7 @@ import net.minecraftforge.fml.event.config.ModConfigEvent;
 import net.minecraftforge.common.ForgeConfigSpec;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.ProxyMode;
+import com.xinian.KryptonHybrid.shared.network.compression.BatchFrames;
 import com.xinian.KryptonHybrid.shared.network.compression.CompressionAlgorithm;
 import org.apache.commons.lang3.tuple.Pair;
 
@@ -46,6 +47,7 @@ public final class KryptonForgeConfig {
     private final ForgeConfigSpec.BooleanValue                    zstdDictEnabled;
     private final ForgeConfigSpec.ConfigValue<String>             zstdDictPath;
     private final ForgeConfigSpec.BooleanValue                    zstdDictRequired;
+    private final ForgeConfigSpec.IntValue                        zstdDictMaxPacketBytes;
     private final ForgeConfigSpec.BooleanValue                    zstdDictTrainingCaptureEnabled;
     private final ForgeConfigSpec.ConfigValue<String>             zstdDictTrainingSamplesDir;
     private final ForgeConfigSpec.IntValue                        zstdDictTrainingMaxSamples;
@@ -92,17 +94,19 @@ public final class KryptonForgeConfig {
     private final ForgeConfigSpec.BooleanValue                    chunkOptEnabled;
     private final ForgeConfigSpec.BooleanValue                    dccEnabled;
     private final ForgeConfigSpec.IntValue                        dccSizeLimit;
-    private final ForgeConfigSpec.IntValue                        dccDistance;
     private final ForgeConfigSpec.IntValue                        dccTimeoutSeconds;
     private final ForgeConfigSpec.BooleanValue                    broadcastCacheEnabled;
     private final ForgeConfigSpec.BooleanValue                    bundleAlwaysCompress;
     private final ForgeConfigSpec.IntValue                        bundleCompressMinBytes;
     private final ForgeConfigSpec.BooleanValue                    broadcastCompressedCacheEnabled;
+    private final ForgeConfigSpec.BooleanValue                    tickFlushEnabled;
     private final ForgeConfigSpec.BooleanValue                    microBatchFlushEnabled;
     private final ForgeConfigSpec.IntValue                        microBatchFlushDelayMs;
+    private final ForgeConfigSpec.BooleanValue                    batchFramesEnabled;
+    private final ForgeConfigSpec.IntValue                        batchFramesMaxPacketBytes;
+    private final ForgeConfigSpec.IntValue                        batchFramesMaxBatchBytes;
     private final ForgeConfigSpec.BooleanValue                    motionDeltaEnabled;
     private final ForgeConfigSpec.IntValue                        motionDeltaThreshold;
-    private final ForgeConfigSpec.DoubleValue                     teleportDeltaSquared;
     private final ForgeConfigSpec.BooleanValue                    packetCoalescingEnabled;
     private final ForgeConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
     private final ForgeConfigSpec.EnumValue<ProxyMode>            proxyMode;
@@ -121,6 +125,8 @@ public final class KryptonForgeConfig {
                         "Compression algorithm to use for network packets.",
                         "  ZLIB  - vanilla zlib (DEFLATE). Always available. Minecraft default.",
                         "  ZSTD  - Zstandard compression (zstd-jni, native). Best ratio; moderate CPU.",
+                        "          Used only when the peer also runs Krypton Hybrid with ZSTD and the",
+                        "          same dictionary, and proxy.mode is NONE; otherwise falls back to ZLIB.",
                         "Default: ZSTD"
                 )
                 .defineEnum("algorithm", CompressionAlgorithm.ZSTD);
@@ -138,10 +144,12 @@ public final class KryptonForgeConfig {
                 .comment(
                         "Zstd adaptive compression level for large payloads (1 = fastest/largest, 22 = slowest/smallest).",
                         "Only used when algorithm = ZSTD and payload size exceeds the adaptive threshold.",
+                        "Compression runs on the network threads: above ~6 each level costs much more",
+                        "CPU for few bytes saved, and a busy network thread falls back to zstd_level.",
                         "Backed by zstd-jni (native).",
-                        "Default: 11"
+                        "Default: 6"
                 )
-                .defineInRange("zstd_adaptive_large_level", 11, 1, 22);
+                .defineInRange("zstd_adaptive_large_level", 6, 1, 22);
 
         zstdAdaptiveLargeThreshold = builder
                 .comment(
@@ -250,22 +258,34 @@ public final class KryptonForgeConfig {
         zstdDictPath = builder
                 .comment(
                         "Path to the pre-trained dictionary file (.zdict).",
-                        "Relative paths are resolved from the game working directory.",
+                        "Relative paths are resolved from the game directory.",
                         "Default: config/krypton_hybrid.zdict"
                 )
                 .define("dict_path", "config/krypton_hybrid.zdict");
 
         zstdDictRequired = builder
                 .comment(
-                        "If true, dictionary load failure is fatal for Zstd context creation.",
-                        "If false, Krypton falls back to plain Zstd and logs a warning.",
+                        "If true and the dictionary fails to load, this side stops offering Zstd,",
+                        "so connections use zlib. If false, they use Zstd without a dictionary.",
+                        "Either way the failure is logged as an error.",
                         "Default: false"
                 )
                 .define("dict_required", false);
 
+        zstdDictMaxPacketBytes = builder
+                .comment(
+                        "Packets larger than this are compressed without the dictionary.",
+                        "A dictionary helps small and medium packets; on large ones such as",
+                        "chunk data it gains nothing and can cost a little.",
+                        "Range: 256 - 8388608  |  Default: 16384"
+                )
+                .defineInRange("dict_max_packet_bytes", 16384, 256, 8 * 1024 * 1024);
+
         zstdDictTrainingCaptureEnabled = builder
                 .comment(
                         "Capture serialized packet samples before Zstd compression for dictionary training.",
+                        "Only packets that are actually compressed (at or above the compression",
+                        "threshold) are captured, each packet object once.",
                         "Only enable this temporarily while collecting representative traffic.",
                         "Captured files may contain mod payload data. Do not publish them publicly.",
                         "Default: false"
@@ -275,10 +295,10 @@ public final class KryptonForgeConfig {
         zstdDictTrainingSamplesDir = builder
                 .comment(
                         "Directory where dictionary-training packet samples are written.",
-                        "Relative paths are resolved from the game working directory.",
-                        "Default: run/krypton_zstd_samples"
+                        "Relative paths are resolved from the game directory.",
+                        "Default: krypton_zstd_samples"
                 )
-                .define("dict_training_samples_dir", "run/krypton_zstd_samples");
+                .define("dict_training_samples_dir", "krypton_zstd_samples");
 
         zstdDictTrainingMaxSamples = builder
                 .comment(
@@ -298,8 +318,8 @@ public final class KryptonForgeConfig {
 
         zstdDictTrainingMinBytes = builder
                 .comment(
-                        "Minimum serialized packet size captured for training.",
-                        "Very tiny packets usually add noise to dictionary training.",
+                        "Minimum serialized packet size captured for training, on top of the",
+                        "compression threshold (smaller packets are never compressed).",
                         "Range: 1 - 1048576  |  Default: 24"
                 )
                 .defineInRange("dict_training_min_bytes", 24, 1, 1048576);
@@ -307,7 +327,7 @@ public final class KryptonForgeConfig {
         zstdDictTrainingMaxBytes = builder
                 .comment(
                         "Maximum serialized packet size captured for training.",
-                        "Caps sample-file size and memory copied by the recorder.",
+                        "The trainer mainly uses samples up to dict_max_packet_bytes.",
                         "Range: 1024 - 2097152  |  Default: 262144"
                 )
                 .defineInRange("dict_training_max_bytes", 256 * 1024, 1024, 2 * 1024 * 1024);
@@ -322,8 +342,10 @@ public final class KryptonForgeConfig {
         ).push("security");
 
         securityEnabled = builder
-                .comment("Global security kill-switch.", "Default: true")
-                .define("enabled", true);
+                .comment("Global security kill-switch. Off by default: the guards are opt-in because",
+                        "per-IP limits and timeouts need tuning for each server's network setup.",
+                        "Default: false")
+                .define("enabled", false);
 
         builder.comment("Connection-rate limiting and rapid reconnect protection.").push("connection_rate_limit");
 
@@ -363,7 +385,10 @@ public final class KryptonForgeConfig {
         builder.comment("Handshake/login timeout budgets.").push("timeouts");
 
         securityHandshakeTimeoutSec = builder.defineInRange("handshake_sec", 5, 1, 300);
-        securityLoginTimeoutSec = builder.defineInRange("login_sec", 10, 1, 300);
+        securityLoginTimeoutSec = builder
+                .comment("Covers Mojang authentication and the Forge mod/registry handshake;",
+                        "vanilla allows 30 s for the whole login.", "Range: 1 - 300  |  Default: 30")
+                .defineInRange("login_sec", 30, 1, 300);
         securityPlayTimeoutSec = builder.defineInRange("play_sec", 30, 1, 3600);
 
         builder.pop();
@@ -473,6 +498,8 @@ public final class KryptonForgeConfig {
         securityWriteWatermarkHigh = builder
                 .defineInRange("watermark_high", 2_097_152, 1024, Integer.MAX_VALUE);
         securityMaxPendingWrites = builder
+                .comment("A connection over this many pending writes that has also been",
+                        "unwritable for max_unwritable_seconds is closed as a slow reader.")
                 .defineInRange("max_pending_writes", 4096, 1, Integer.MAX_VALUE);
         securityMaxUnwritableSeconds = builder
                 .defineInRange("max_unwritable_seconds", 15, 1, 3600);
@@ -522,8 +549,10 @@ public final class KryptonForgeConfig {
         builder.comment(
                 "Delayed Chunk Cache (DCC)",
                 "Reduces redundant chunk resends when a player moves near the edge of",
-                "their view distance. Departing chunks are buffered; if the player",
-                "re-enters range within the timeout, the full resend is skipped."
+                "their view distance. Departing chunks the client received are kept on the",
+                "client while it can still hold them (view distance + 3 around its view",
+                "center); if the player re-enters range within the timeout and the chunk",
+                "has not changed, the full resend is skipped."
         ).push("dcc");
 
         dccEnabled = builder
@@ -540,14 +569,6 @@ public final class KryptonForgeConfig {
                         "Range: 1 \u2013 200  |  Default: 60"
                 )
                 .defineInRange("size_limit", 60, 1, 200);
-
-        dccDistance = builder
-                .comment(
-                        "Cache radius (chunks) around the player's current position.",
-                        "Cached chunks farther than this are evicted and untracked.",
-                        "Range: 1 \u2013 32  |  Default: 5"
-                )
-                .defineInRange("distance", 5, 1, 32);
 
         dccTimeoutSeconds = builder
                 .comment(
@@ -614,7 +635,23 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
+                "Whole-tick Flush Window",
+                "Holds each player's flush for the whole server tick (world, entity,",
+                "block-entity and player ticks) and flushes once in vanilla's connection",
+                "phase, instead of only around chunk broadcasts and entity tracking.",
+                "Packets made during the tick leave when the tick's work is done instead",
+                "of immediately; replies to client packets between ticks are not held."
+        ).push("tick_flush");
+
+        tickFlushEnabled = builder
+                .comment("Enable the whole-tick flush window.", "Default: true")
+                .define("enabled", true);
+
+        builder.pop();
+
+        builder.comment(
                 "Cross-tick Micro-batch Flush",
+                "Only used when tick_flush is disabled.",
                 "Defers the end-of-tick flush by a few milliseconds to coalesce writes",
                 "from adjacent broadcast phases. This reduces syscall pressure and may",
                 "improve compression grouping at the cost of small added latency."
@@ -631,13 +668,48 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
-                "Motion and Teleport Delta Filter",
-                "Drops redundant motion and teleport packets when the encoded delta is",
-                "below a visual threshold for the same entity/player pair."
+                "Batch Frames",
+                "Sends all packets of one flush to a player as a single compressed frame",
+                "instead of one frame per packet, so small packets (entity movement, block",
+                "updates), which are otherwise sent uncompressed, are compressed together.",
+                "Only the server sends them, and only to clients that run Krypton Hybrid with",
+                "Zstd; the client splits the frame back into packets. Works best with",
+                "tick_flush, which flushes each player once per tick."
+        ).push("batch_frames");
+
+        batchFramesEnabled = builder
+                .comment("Enable batch frames.", "Default: false")
+                .define("enabled", false);
+
+        batchFramesMaxPacketBytes = builder
+                .comment(
+                        "Packets larger than this are sent in a frame of their own, after the",
+                        "packets held before them. Chunk and light packets at or above the",
+                        "compression threshold always are, so the compressed broadcast cache",
+                        "keeps working.",
+                        "Range: 256 - 1048576  |  Default: 16384"
+                )
+                .defineInRange("max_packet_bytes", 16384, 256, BatchFrames.MAX_BATCH_BYTES);
+
+        batchFramesMaxBatchBytes = builder
+                .comment(
+                        "Uncompressed size of one batch frame. A full batch is sent and a new",
+                        "one started.",
+                        "Range: 4096 - 1048576  |  Default: 262144"
+                )
+                .defineInRange("max_batch_bytes", 256 * 1024, 4096, BatchFrames.MAX_BATCH_BYTES);
+
+        builder.pop();
+
+        builder.comment(
+                "Motion Delta Filter",
+                "Drops redundant motion (velocity) packets when the encoded delta is",
+                "below a visual threshold for the same entity/player pair. A velocity",
+                "that drops to zero is always sent."
         ).push("motion_delta");
 
         motionDeltaEnabled = builder
-                .comment("Enable motion and teleport delta filtering.", "Default: true")
+                .comment("Enable motion delta filtering.", "Default: true")
                 .define("enabled", true);
 
         motionDeltaThreshold = builder
@@ -647,25 +719,18 @@ public final class KryptonForgeConfig {
                 )
                 .defineInRange("motion_threshold", 40, 0, 8000);
 
-        teleportDeltaSquared = builder
-                .comment(
-                        "Squared block-distance threshold for redundant teleport packets.",
-                        "Range: 0.0 - 1.0  |  Default: 1.0E-4"
-                )
-                .defineInRange("teleport_delta_squared", 1.0E-4, 0.0, 1.0);
-
         builder.pop();
 
         builder.comment(
                 "Packet Coalescing",
                 "Deduplicates redundant entity update packets within each tick's",
-                "bundle before sending.  Removes superseded velocity, teleport,",
-                "and entity data packets for the same entity."
+                "per-player batch before sending.  Removes superseded velocity,",
+                "teleport, head rotation and entity data packets for the same entity."
         ).push("packet_coalescing");
 
         packetCoalescingEnabled = builder
                 .comment(
-                        "Enable packet coalescing within entity tracking bundles.",
+                        "Enable packet coalescing within each tick's per-player batch.",
                         "Default: true"
                 )
                 .define("enabled", true);
@@ -701,11 +766,11 @@ public final class KryptonForgeConfig {
                 .comment(
                         "Proxy detection mode.",
                         "  NONE     - No proxy; all optimizations active (direct connection).",
-                        "  AUTO     - Auto-detect Velocity via login plugin channel.",
-                        "             When detected, forces ZLIB on backend and gates custom",
-                        "             wire formats behind capability negotiation.",
-                        "  VELOCITY - Assume Velocity proxy; always use ZLIB backend",
-                        "             compression and gate custom wire formats.",
+                        "  AUTO     - Currently behaves like VELOCITY (no detection yet).",
+                        "  VELOCITY - Assume a proxy (Velocity/BungeeCord); always use ZLIB backend",
+                        "             compression and skip per-IP connection/status-ping limits,",
+                        "             since every player arrives from the proxy's address.",
+                        "Set this to VELOCITY whenever the server sits behind any proxy.",
                         "Default: NONE"
                 )
                 .defineEnum("mode", ProxyMode.NONE);
@@ -743,6 +808,7 @@ public final class KryptonForgeConfig {
         KryptonConfig.zstdDictEnabled      = zstdDictEnabled.get();
         KryptonConfig.zstdDictPath         = zstdDictPath.get();
         KryptonConfig.zstdDictRequired     = zstdDictRequired.get();
+        KryptonConfig.zstdDictMaxPacketBytes = zstdDictMaxPacketBytes.get();
         KryptonConfig.zstdDictTrainingCaptureEnabled = zstdDictTrainingCaptureEnabled.get();
         KryptonConfig.zstdDictTrainingSamplesDir     = zstdDictTrainingSamplesDir.get();
         KryptonConfig.zstdDictTrainingMaxSamples     = zstdDictTrainingMaxSamples.get();
@@ -789,17 +855,19 @@ public final class KryptonForgeConfig {
         KryptonConfig.chunkOptEnabled      = chunkOptEnabled.get();
         KryptonConfig.dccEnabled           = dccEnabled.get();
         KryptonConfig.dccSizeLimit         = dccSizeLimit.get();
-        KryptonConfig.dccDistance          = dccDistance.get();
         KryptonConfig.dccTimeoutSeconds    = dccTimeoutSeconds.get();
         KryptonConfig.broadcastCacheEnabled    = broadcastCacheEnabled.get();
         KryptonConfig.bundleAlwaysCompress     = bundleAlwaysCompress.get();
         KryptonConfig.bundleCompressMinBytes   = bundleCompressMinBytes.get();
         KryptonConfig.broadcastCompressedCacheEnabled = broadcastCompressedCacheEnabled.get();
+        KryptonConfig.tickFlushEnabled         = tickFlushEnabled.get();
         KryptonConfig.microBatchFlushEnabled   = microBatchFlushEnabled.get();
         KryptonConfig.microBatchFlushDelayMs   = microBatchFlushDelayMs.get();
+        KryptonConfig.batchFramesEnabled       = batchFramesEnabled.get();
+        KryptonConfig.batchFramesMaxPacketBytes = batchFramesMaxPacketBytes.get();
+        KryptonConfig.batchFramesMaxBatchBytes = batchFramesMaxBatchBytes.get();
         KryptonConfig.motionDeltaEnabled       = motionDeltaEnabled.get();
         KryptonConfig.motionDeltaThreshold     = motionDeltaThreshold.get();
-        KryptonConfig.teleportDeltaSquared     = teleportDeltaSquared.get();
         KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
         KryptonConfig.proxyMode                = proxyMode.get();

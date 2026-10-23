@@ -1,5 +1,7 @@
 package com.xinian.KryptonHybrid.command;
 
+import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastCompressedCache;
+import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -117,19 +119,38 @@ public final class KryptonStatsCommand {
         source.sendSuccess(() -> t("command.krypton_hybrid.stats.compression",
                 String.format("%.4f", ratio),
                 String.format("%.2f", savingPct)), false);
-        source.sendSuccess(() -> t("command.krypton_hybrid.stats.bundles",
-                String.format("%,d", stats.getBundlesEmitted()),
-                String.format("%.2f", stats.getAvgBundleSize()),
-                String.format("%.1f", stats.getBundleHitRate() * 100.0),
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.flush",
+                String.format("%,d", stats.getConsolidatedFlushes()),
+                String.format("%,d", stats.getDeferredPackets()),
+                String.format("%.1f", stats.getPacketsPerFlush()),
+                String.format("%.1f", stats.getFlushSavingRate() * 100.0),
                 String.format("%,d", stats.getCoalesceDroppedPackets())), false);
+        if (KryptonConfig.batchFramesEnabled || stats.getBatchFrames() > 0) {
+            source.sendSuccess(() -> t("command.krypton_hybrid.stats.batch_frames",
+                    String.format("%,d", stats.getBatchFrames()),
+                    String.format("%,d", stats.getBatchFramePackets()),
+                    String.format("%.1f", stats.getPacketsPerBatchFrame())), false);
+        }
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.cache",
+                cacheRate(BroadcastSerializationCache.hits(), BroadcastSerializationCache.misses()),
+                String.format("%,d", BroadcastSerializationCache.hits()),
+                cacheRate(BroadcastCompressedCache.hits(), BroadcastCompressedCache.misses()),
+                String.format("%,d", BroadcastCompressedCache.hits())), false);
 
         return 1;
+    }
+
+    /** Hit rate in percent, or "-" before any lookup. */
+    private static String cacheRate(long hits, long misses) {
+        long total = hits + misses;
+        return total == 0 ? "-" : String.format("%.1f", hits * 100.0 / total);
     }
 
     private static int executeGui(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         StatsSnapshotPayload snap = StatsSnapshotPayload.current();
         KryptonHybrid.sendStatsSnapshot(player, snap);
+        KryptonHybrid.openDashboard(player);
         return 1;
     }
 
@@ -305,9 +326,10 @@ public final class KryptonStatsCommand {
 
     private static int executeReset(CommandContext<CommandSourceStack> ctx) {
         NetworkTrafficStats.INSTANCE.reset();
-        ctx.getSource().sendSuccess(() ->
-                t("command.krypton_hybrid.stats.reset")
-                        .withStyle(ChatFormatting.GREEN), true);
+        BroadcastSerializationCache.resetCounters();
+        BroadcastCompressedCache.resetCounters();
+        ctx.getSource().sendSuccess(() -> t("command.krypton_hybrid.stats.reset")
+                .withStyle(ChatFormatting.GREEN), true);
         return 1;
     }
 

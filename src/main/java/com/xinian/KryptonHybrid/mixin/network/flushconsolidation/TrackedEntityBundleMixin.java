@@ -9,8 +9,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 /**
  * Redirects per-player packet sends inside {@code ChunkMap.TrackedEntity.broadcast()}
- * to the {@link EntityBundleCollector} during the entity tracking tick, enabling
- * automatic packet bundling.
+ * to the {@link EntityBundleCollector} during the entity tracking tick, so they can be
+ * de-duplicated and flushed together.
  *
  * <h3>Target method</h3>
  * <p>{@code ChunkMap.TrackedEntity.broadcast(Packet)} iterates over all
@@ -24,9 +24,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * by {@link ChunkMapFlushMixin} at the start of {@code ChunkMap.tick()}), the
  * redirect intercepts the {@code send()} call and routes the packet to
  * {@link EntityBundleCollector#collect(ServerPlayerConnection, Packet)} instead.
- * The collector appends the packet to a per-player list; all collected packets for
- * each player are then flushed as a single {@link net.minecraft.network.protocol.game.ClientboundBundlePacket
- * ClientboundBundlePacket} at the end of the tick.</p>
+ * The collector appends the packet to a per-player list; at the end of the tick the
+ * list is coalesced and written, and the tick's flush window flushes it once.</p>
  *
  * <p>When no collection window is active (broadcast called from outside the tick,
  * e.g. during {@code addEntity} or manual {@code broadcast()} calls), the redirect
@@ -42,9 +41,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * <p>{@code ServerEntity.broadcastAndSend()} and {@code TrackedEntity.broadcastAndSend()}
  * also send a copy to the entity's own player connection via a direct
  * {@code connection.send()} call <em>outside</em> of {@code broadcast()}.  This
- * self-send is intentionally not intercepted ??it is a single packet per player-entity
- * per change and does not benefit meaningfully from bundling.  The flush consolidation
- * system already ensures this packet is batched at the Netty channel level.</p>
+ * self-send is intentionally not intercepted: it is a single packet per player-entity
+ * per change, and the tick's flush window already flushes it with the rest.</p>
  *
  * @see EntityBundleCollector
  * @see ChunkMapFlushMixin
@@ -54,8 +52,8 @@ public class TrackedEntityBundleMixin {
 
     /**
      * Intercepts every {@link ServerPlayerConnection#send(Packet)} call inside
-     * {@code broadcast(Packet)} and routes it through the bundle collector when
-     * a collection window is active.
+     * {@code broadcast(Packet)} and routes it through the collector when a collection
+     * window is active.
      *
      * <p>The redirect target matches the interface method on
      * {@link ServerPlayerConnection} ??regardless of the concrete implementation

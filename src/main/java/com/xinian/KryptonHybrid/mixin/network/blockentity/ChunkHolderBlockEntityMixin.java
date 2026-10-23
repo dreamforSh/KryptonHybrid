@@ -3,6 +3,7 @@ package com.xinian.KryptonHybrid.mixin.network.blockentity;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.network.blockentity.BlockEntityDeltaCache;
 import com.xinian.KryptonHybrid.shared.network.blockentity.BlockEntityDeltaHolder;
+import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastBundleCollector;
 import com.xinian.KryptonHybrid.shared.network.control.KryptonWireFormat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -13,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -41,8 +43,7 @@ import java.util.List;
  * rather than replacing the local NBT.</p>
  */
 @Mixin(ChunkHolder.class)
-public class ChunkHolderBlockEntityMixin {
-
+public abstract class ChunkHolderBlockEntityMixin {
     /**
      * Intercepts the private {@code broadcastBlockEntity(List, Level, BlockPos)}
      * method to apply per-player delta encoding.
@@ -76,7 +77,7 @@ public class ChunkHolderBlockEntityMixin {
         if (fullTag == null || fullTag.isEmpty()) {
             // Empty tag ??send as-is to all players
             for (ServerPlayer player : players) {
-                player.connection.send(fullPacket);
+                krypton$send(player, fullPacket);
             }
             ci.cancel();
             return;
@@ -86,13 +87,13 @@ public class ChunkHolderBlockEntityMixin {
 
         for (ServerPlayer player : players) {
             if (!KryptonWireFormat.canWriteBlockEntityDelta(player.connection.connection)) {
-                player.connection.send(fullPacket);
+                krypton$send(player, fullPacket);
                 continue;
             }
 
             if (!(player.connection instanceof BlockEntityDeltaHolder holder)) {
                 // Fallback: send full packet
-                player.connection.send(fullPacket);
+                krypton$send(player, fullPacket);
                 continue;
             }
 
@@ -106,16 +107,29 @@ public class ChunkHolderBlockEntityMixin {
 
             if (deltaOrFull == fullTag) {
                 // Full tag (first send, or delta not beneficial)
-                player.connection.send(fullPacket);
+                krypton$send(player, fullPacket);
             } else {
                 // Delta tag ??create a new packet with the delta
-                player.connection.send(new ClientboundBlockEntityDataPacket(
+                krypton$send(player, new ClientboundBlockEntityDataPacket(
                         pos, bePacket.getType(), deltaOrFull
                 ));
             }
         }
 
         ci.cancel();
+    }
+
+    /**
+     * Block updates from the same {@code broadcastChanges} call are held in the
+     * broadcast collector until {@code tickChunks} returns. Queue behind them so the
+     * client already has the block entity when its data arrives; otherwise the data
+     * is dropped client-side while the delta cache records it as delivered.
+     */
+    @Unique
+    private static void krypton$send(ServerPlayer player, Packet<?> packet) {
+        if (!BroadcastBundleCollector.collect(player, packet)) {
+            player.connection.send(packet);
+        }
     }
 }
 

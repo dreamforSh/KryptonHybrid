@@ -3,8 +3,12 @@ package com.xinian.KryptonHybrid.shared.network.compression;
 import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdCompressCtx;
 import com.github.luben.zstd.ZstdDecompressCtx;
+import com.github.luben.zstd.ZstdDictCompress;
+import com.github.luben.zstd.ZstdDictDecompress;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import com.xinian.KryptonHybrid.shared.KryptonSharedBootstrap;
+import io.netty.buffer.ByteBuf;
+import net.minecraftforge.fml.loading.FMLPaths;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,13 +16,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Utility class for Zstd compression using the zstd-jni library.
  *
  * <p>zstd-jni provides a JNI binding to the native Zstandard library, supporting the
  * full compression level range (1\u201322) and Java 8+ runtimes (including Java 17 used
- * by Minecraft 1.19.2). The native binaries for all major platforms are bundled inside
+ * by Minecraft 1.20.1). The native binaries for all major platforms are bundled inside
  * the JAR and extracted automatically on first use.</p>
  *
  * <h3>Two-stage enablement model</h3>
@@ -64,10 +70,33 @@ public final class ZstdUtil {
     private ZstdUtil() {}
 
     /**
-     * Returns {@code true} when Zstd should be used for the current connection.
+     * Returns {@code true} when this side is willing to use Zstd. Whether a given
+     * connection actually uses it is decided by {@link CompressionNegotiation}.
      */
     public static boolean isEnabled() {
         return AVAILABLE && KryptonConfig.compressionAlgorithm == CompressionAlgorithm.ZSTD;
+    }
+
+    /**
+     * Returns the dictionary id both peers must agree on before Zstd can be negotiated:
+     * the loaded dictionary's id, {@code 0} for plain Zstd, or {@code -1} when this side
+     * cannot use Zstd at all (disabled, native library missing, or a required dictionary
+     * failed to load).
+     */
+    public static synchronized long negotiableDictionaryId() {
+        if (!isEnabled()) {
+            return -1L;
+        }
+        if (!KryptonConfig.zstdDictEnabled) {
+            return 0L;
+        }
+        if (!dictionaryLoadAttempted) {
+            loadDictionary();
+        }
+        if (dictionaryBytes != null) {
+            return dictionaryId;
+        }
+        return KryptonConfig.zstdDictRequired ? -1L : 0L;
     }
 
     /**
@@ -104,7 +133,17 @@ public final class ZstdUtil {
         return sb.toString();
     }
 
-    public static synchronized void reloadDictionary() {
+    /**
+     * (Re)loads the configured dictionary and advertises the resulting compression token
+     * to peers that log in from now on. Call after every config change.
+     */
+    public static void reloadDictionary() {
+        loadDictionary();
+        // Outside this class's lock: the negotiation reads the dictionary state back.
+        CompressionNegotiation.refreshToken();
+    }
+
+    private static synchronized void loadDictionary() {
         dictionaryLoadAttempted = true;
         dictionaryBytes = null;
         dictionaryId = 0L;
@@ -119,26 +158,37 @@ public final class ZstdUtil {
 
         String configuredPath = KryptonConfig.zstdDictPath == null ? "" : KryptonConfig.zstdDictPath.trim();
         if (configuredPath.isEmpty()) {
-            dictionaryError = "dictionary path is empty";
+            failDictionary("dictionary path is empty");
             return;
         }
 
         Path path = resolveDictionaryPath(configuredPath);
         try {
             if (!Files.exists(path)) {
-                dictionaryError = "dictionary file not found: " + path;
+                failDictionary("dictionary file not found: " + path);
                 return;
             }
 
             byte[] bytes = Files.readAllBytes(path);
             if (bytes.length < 64) {
-                dictionaryError = "dictionary file is too small: " + bytes.length + " bytes";
+                failDictionary("dictionary file is too small: " + bytes.length + " bytes");
                 return;
             }
 
             ZstdDictionaryMetadata metadata = ZstdDictionaryMetadata.tryParse(bytes);
             byte[] plainDictionary = metadata != null ? metadata.getPlainDictionary() : bytes;
-            long dictId = metadata != null ? metadata.getDictID() : Zstd.getDictIdFromDict(plainDictionary);
+            long dictId = Zstd.getDictIdFromDict(plainDictionary);
+            // Peers agree on a dictionary by its ID, and ID 0 is what "no dictionary"
+            // advertises: a raw-content dictionary would be mistaken for none.
+            if (dictId == 0L) {
+                failDictionary("dictionary has no ID (raw content); train one with trainZstdDict: " + path);
+                return;
+            }
+            if (metadata != null && metadata.getDictID() != dictId) {
+                failDictionary("metadata says dictionary ID " + metadata.getDictID()
+                        + " but the dictionary is " + dictId + ": " + path);
+                return;
+            }
             validateDictionary(plainDictionary);
             dictionaryBytes = plainDictionary;
             dictionaryId = dictId;
@@ -154,10 +204,19 @@ public final class ZstdUtil {
                     dictionarySha256,
                     metadata != null ? "wrapped" : "plain");
         } catch (IOException ioe) {
-            dictionaryError = "failed reading dictionary: " + ioe.getMessage();
+            failDictionary("failed reading dictionary: " + ioe.getMessage());
         } catch (Throwable t) {
-            dictionaryError = "failed validating dictionary: " + t.getMessage();
+            failDictionary("failed validating dictionary: " + t.getMessage());
         }
+    }
+
+    /** Records why the dictionary is unavailable and says what connections will do instead. */
+    private static void failDictionary(String error) {
+        dictionaryError = error;
+        KryptonSharedBootstrap.LOGGER.error("Zstd dictionary not loaded: {}. {}", error,
+                KryptonConfig.zstdDictRequired
+                        ? "dict_required is on, so Zstd is not offered and connections use zlib."
+                        : "Connections use Zstd without a dictionary.");
     }
 
     public static String dictionaryStatusDescription() {
@@ -185,9 +244,10 @@ public final class ZstdUtil {
         return "error(" + err + ")";
     }
 
+    /** Relative paths start at the game directory. */
     private static Path resolveDictionaryPath(String configuredPath) {
         Path path = Paths.get(configuredPath);
-        return path.isAbsolute() ? path.normalize() : Paths.get("").resolve(path).normalize();
+        return path.isAbsolute() ? path.normalize() : FMLPaths.GAMEDIR.get().resolve(path).normalize();
     }
 
     private static byte[] getDictionaryOrFailIfRequired() {
@@ -195,7 +255,7 @@ public final class ZstdUtil {
             return null;
         }
         if (!dictionaryLoadAttempted) {
-            reloadDictionary();
+            loadDictionary();
         }
 
         byte[] dict = dictionaryBytes;
@@ -203,14 +263,12 @@ public final class ZstdUtil {
             return dict;
         }
 
-        String err = dictionaryError != null ? dictionaryError : "unknown dictionary load failure";
+        // The failure was logged when loading; a required dictionary also keeps Zstd from
+        // being negotiated, so this only throws if the configuration changed mid-login.
         if (KryptonConfig.zstdDictRequired) {
+            String err = dictionaryError != null ? dictionaryError : "unknown dictionary load failure";
             throw new IllegalStateException("Zstd dictionary is required but unavailable: " + err);
         }
-
-        KryptonSharedBootstrap.LOGGER.warn(
-                "Zstd dictionary unavailable ({}); falling back to plain Zstd.",
-                err);
         return null;
     }
 
@@ -297,17 +355,65 @@ public final class ZstdUtil {
             ctx.setStrategy(strategy);
         }
 
-        byte[] dict = getDictionaryOrFailIfRequired();
-        if (dict != null) {
-            ctx.loadDict(dict);
-            ctx.setDictID(true);
-        }
+        // The dictionary is agreed on during login, so its ID in a frame header would be
+        // redundant (4 bytes per packet).
+        ctx.setDictID(false);
 
         return ctx;
     }
 
     /**
-     * Creates a new per-channel {@link ZstdDecompressCtx}.
+     * Little-endian Zstd frame magic. On a dictionary connection, frames compressed with
+     * the dictionary are written without it (magicless) and frames compressed without it
+     * keep it, so the decoder can tell them apart: a magicless frame can never start with
+     * these bytes, because its first byte would have the reserved header bit set.
+     */
+    public static final int FRAME_MAGIC = 0xFD2FB528;
+
+    /** Whether the frame at {@code buf}'s reader index is a standard frame (no dictionary). */
+    public static boolean isStandardFrame(ByteBuf buf) {
+        return buf.readableBytes() >= 4 && buf.getIntLE(buf.readerIndex()) == FRAME_MAGIC;
+    }
+
+    /** A context for dictionary frames: magicless; the encoder loads the dictionary per level. */
+    public static ZstdCompressCtx createDictionaryCompressor() {
+        ZstdCompressCtx ctx = createCompressor();
+        ctx.setMagicless(true);
+        return ctx;
+    }
+
+    /** Dictionary new connections compress with ({@code null} for none). */
+    public static byte[] compressionDictionary() {
+        return getDictionaryOrFailIfRequired();
+    }
+
+    /** Prepared dictionaries per raw dictionary; dropped once nothing uses the raw bytes. */
+    private static final Map<byte[], ZstdDictCompress[]> COMPRESS_DICTS = new WeakHashMap<>();
+    private static final Map<byte[], ZstdDictDecompress> DECOMPRESS_DICTS = new WeakHashMap<>();
+
+    /**
+     * {@code dict} prepared for compression at {@code level}, shared by all connections
+     * (a context keeps the one it loaded alive). libzstd builds a raw dictionary's tables
+     * for whatever level is active when it is first used and ignores later level changes,
+     * so switching levels means loading the dictionary prepared for the new level.
+     */
+    public static synchronized ZstdDictCompress compressDictionary(byte[] dict, int level) {
+        ZstdDictCompress[] byLevel = COMPRESS_DICTS.computeIfAbsent(dict, k -> new ZstdDictCompress[23]);
+        ZstdDictCompress prepared = byLevel[level];
+        if (prepared == null) {
+            prepared = new ZstdDictCompress(dict, level);
+            byLevel[level] = prepared;
+        }
+        return prepared;
+    }
+
+    /** {@code dict} prepared for decompression, shared by all connections. */
+    private static synchronized ZstdDictDecompress decompressDictionary(byte[] dict) {
+        return DECOMPRESS_DICTS.computeIfAbsent(dict, ZstdDictDecompress::new);
+    }
+
+    /**
+     * Creates a new per-channel {@link ZstdDecompressCtx} for standard frames (no dictionary).
      *
      * @return a ready-to-use decompress context
      * @throws IllegalStateException if Zstd is not enabled
@@ -316,11 +422,14 @@ public final class ZstdUtil {
         if (!isEnabled()) {
             throw new IllegalStateException("Zstd is not enabled. Check krypton_fnp-common.toml.");
         }
-        ZstdDecompressCtx ctx = new ZstdDecompressCtx();
-        byte[] dict = getDictionaryOrFailIfRequired();
-        if (dict != null) {
-            ctx.loadDict(dict);
-        }
+        return new ZstdDecompressCtx();
+    }
+
+    /** A per-channel context for magicless dictionary frames compressed with {@code dict}. */
+    public static ZstdDecompressCtx createDictionaryDecompressor(byte[] dict) {
+        ZstdDecompressCtx ctx = createDecompressor();
+        ctx.setMagicless(true);
+        ctx.loadDict(decompressDictionary(dict));
         return ctx;
     }
 
