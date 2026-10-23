@@ -361,7 +361,7 @@ public final class KryptonConfig {
      */
     public static volatile int motionDeltaThreshold = 40;
 
-    // --- P1-??Packet Coalescing ---
+    // --- P1-③ Packet Coalescing ---
 
     /**
      * Whether to deduplicate redundant packets within the entity-tracking bundle

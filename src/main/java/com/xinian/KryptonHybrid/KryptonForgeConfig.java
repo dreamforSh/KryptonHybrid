@@ -337,7 +337,7 @@ public final class KryptonForgeConfig {
         builder.comment(
                 "Krypton Hybrid - Network Security / Independent Packet Control",
                 "Protects the inbound network path without touching Velocity Native fast paths.",
-                "All checks run in the Minecraft / Forge layer and are designed to fail fast",
+                "All checks run in the Minecraft / NeoForge layer and are designed to fail fast",
                 "before expensive decode, decompression, NBT, or gameplay processing begins."
         ).push("security");
 
@@ -386,8 +386,9 @@ public final class KryptonForgeConfig {
 
         securityHandshakeTimeoutSec = builder.defineInRange("handshake_sec", 5, 1, 300);
         securityLoginTimeoutSec = builder
-                .comment("Covers Mojang authentication and the Forge mod/registry handshake;",
-                        "vanilla allows 30 s for the whole login.", "Range: 1 - 300  |  Default: 30")
+                .comment("Covers Mojang authentication and the compression negotiation;",
+                        "NeoForge's registry sync runs later, in configuration (play_sec).",
+                        "Vanilla allows 30 s for the whole login.", "Range: 1 - 300  |  Default: 30")
                 .defineInRange("login_sec", 30, 1, 300);
         securityPlayTimeoutSec = builder.defineInRange("play_sec", 30, 1, 3600);
 
