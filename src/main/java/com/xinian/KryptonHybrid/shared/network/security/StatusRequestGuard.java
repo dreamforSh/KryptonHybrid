@@ -69,7 +69,16 @@ public final class StatusRequestGuard {
         }
 
         evictStaleWindowsIfDue();
-        StatusBudget budget = WINDOWS.computeIfAbsent(ip, key -> new StatusBudget());
+        StatusBudget budget = WINDOWS.get(ip);
+        if (budget == null) {
+            if (WINDOWS.size() >= RateLimitKeys.MAX_TRACKED_ADDRESSES) {
+                evictStaleWindows();
+                if (WINDOWS.size() >= RateLimitKeys.MAX_TRACKED_ADDRESSES) {
+                    return true;
+                }
+            }
+            budget = WINDOWS.computeIfAbsent(ip, key -> new StatusBudget());
+        }
         if (budget.tryAcquire(cost)) {
             return true;
         }

@@ -63,7 +63,17 @@ public class ConnectionRateLimiter extends ChannelInboundHandlerAdapter {
         }
 
         evictStaleWindowsIfDue();
-        ConnectionBudget budget = WINDOWS.computeIfAbsent(ip, k -> new ConnectionBudget());
+        ConnectionBudget budget = WINDOWS.get(ip);
+        if (budget == null) {
+            if (WINDOWS.size() >= RateLimitKeys.MAX_TRACKED_ADDRESSES) {
+                evictStaleWindows();
+                if (WINDOWS.size() >= RateLimitKeys.MAX_TRACKED_ADDRESSES) {
+                    super.channelActive(ctx);
+                    return;
+                }
+            }
+            budget = WINDOWS.computeIfAbsent(ip, k -> new ConnectionBudget());
+        }
         if (!budget.tryAcquire()) {
             SecurityMetrics.INSTANCE.recordConnectionRateLimited();
             if (budget.shouldLogViolation()) {
