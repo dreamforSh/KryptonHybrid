@@ -331,6 +331,8 @@
   "config.krypton_hybrid.motion_delta.motion_threshold": "Motion threshold",
   "config.krypton_hybrid.packet_coalescing": "Packet coalescing",
   "config.krypton_hybrid.packet_coalescing.enabled": "Enable",
+  "config.krypton_hybrid.entity_data_throttle": "Entity data throttle",
+  "config.krypton_hybrid.entity_data_throttle.enabled": "Enable",
   "config.krypton_hybrid.block_entity_delta": "Block entity delta",
   "config.krypton_hybrid.block_entity_delta.enabled": "Enable",
   "config.krypton_hybrid.proxy": "Proxy",

@@ -376,6 +376,16 @@ public final class KryptonConfig {
      */
     public static volatile boolean packetCoalescingEnabled = true;
 
+    // --- Entity Data Throttle ---
+
+    /**
+     * Whether to drop item stack entity data values whose encoded bytes equal the
+     * last broadcast ones. Only the dirty value list is filtered; vanilla
+     * {@code ServerEntity#sendDirtyEntityData} still runs to the end.
+     * Default: {@code true}.
+     */
+    public static volatile boolean entityDataThrottleEnabled = true;
+
     // --- P1-① Block Entity NBT Delta Sync ---
 
     /**

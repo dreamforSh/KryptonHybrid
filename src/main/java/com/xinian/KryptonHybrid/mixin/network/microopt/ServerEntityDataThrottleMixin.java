@@ -1,30 +1,25 @@
 package com.xinian.KryptonHybrid.mixin.network.microopt;
 
+import com.xinian.KryptonHybrid.shared.KryptonConfig;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
-import net.minecraft.network.protocol.game.ClientboundUpdateAttributesPacket;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Throttles redundant {@link ClientboundSetEntityDataPacket} broadcasts by filtering
@@ -38,11 +33,15 @@ import java.util.Set;
  * {@code set(key, value, true)} (display interpolation restarts) or a value set and
  * reset within a tick to correct the client ({@code Player.stopFallFlying}).</p>
  *
+ * <p>Only the list returned by {@code packDirty()} is filtered; the vanilla method
+ * still runs to the end. Attribute syncing and other mods' injections into
+ * {@code sendDirtyEntityData} (Epic Fight sends its own synched data from a TAIL
+ * injection) are unaffected. When every dirty value is filtered out the list becomes
+ * {@code null}, so vanilla sends nothing and keeps {@code trackedDataValues}, whose
+ * item stacks encode to the same bytes as the current ones.</p>
+ *
  * <p>A value whose encoding fails here is sent unfiltered, so a broken codec still
  * fails on the player's connection, as in vanilla, rather than on the server thread.</p>
- *
- * <p>{@code trackedDataValues} is still refreshed on every dirty tick, so players that
- * start tracking the entity later get its full current state from {@code addPairing}.</p>
  */
 @Mixin(ServerEntity.class)
 public abstract class ServerEntityDataThrottleMixin {
@@ -53,40 +52,24 @@ public abstract class ServerEntityDataThrottleMixin {
 
     @Shadow @Final private Entity entity;
 
-    @Shadow @Nullable private List<SynchedEntityData.DataValue<?>> trackedDataValues;
-
-    @Shadow
-    private void broadcastAndSend(Packet<?> packet) {
-        throw new AssertionError();
-    }
-
     /** Last broadcast bytes per data value id; created on first use. */
     @Unique
     private Int2ObjectOpenHashMap<byte[]> krypton$lastBroadcastSnapshots;
 
-    @Inject(method = "sendDirtyEntityData", at = @At("HEAD"), cancellable = true)
-    private void krypton$throttledSendDirtyEntityData(CallbackInfo ci) {
-        ci.cancel();
-
-        SynchedEntityData data = this.entity.getEntityData();
-        List<SynchedEntityData.DataValue<?>> dirtyList = data.packDirty();
-
-        if (dirtyList != null) {
-            this.trackedDataValues = data.getNonDefaultValues();
-
-            List<SynchedEntityData.DataValue<?>> filtered = krypton$filterUnchanged(dirtyList);
-            if (!filtered.isEmpty()) {
-                this.broadcastAndSend(new ClientboundSetEntityDataPacket(this.entity.getId(), filtered));
-            }
+    @ModifyVariable(method = "sendDirtyEntityData", at = @At("STORE"))
+    @Nullable
+    private List<SynchedEntityData.DataValue<?>> krypton$throttleDirtyValues(
+            @Nullable List<SynchedEntityData.DataValue<?>> dirtyList) {
+        if (!KryptonConfig.entityDataThrottleEnabled) {
+            // Values broadcast while disabled are not recorded; drop the stale snapshots.
+            this.krypton$lastBroadcastSnapshots = null;
+            return dirtyList;
         }
-
-        if (this.entity instanceof LivingEntity living) {
-            Set<AttributeInstance> set = living.getAttributes().getAttributesToSync();
-            if (!set.isEmpty()) {
-                this.broadcastAndSend(new ClientboundUpdateAttributesPacket(this.entity.getId(), set));
-            }
-            set.clear();
+        if (dirtyList == null) {
+            return null;
         }
+        List<SynchedEntityData.DataValue<?>> filtered = krypton$filterUnchanged(dirtyList);
+        return filtered.isEmpty() ? null : filtered;
     }
 
     @Unique
