@@ -29,6 +29,7 @@
 
 ### 修复
 
+- **与挂钩 `sendDirtyEntityData` 的模组冲突**（[#12](https://github.com/dreamforSh/KryptonHybrid/issues/12)）：实体数据节流之前在方法开头取消原版方法并自行重写，其他模组注入在方法末尾的逻辑不再执行，例如 Epic Fight 的耐力等扩展数据不再同步。现在只过滤 `packDirty()` 返回的待发送列表，原版方法照常执行到底；新增 `entity_data_throttle.enabled` 开关。
 - **混服时原版客户端断线**：广播序列化缓存会把按某个连接编码好的字节交给同一网络线程上的其他连接。光照更新包对装了 Krypton 的客户端写成 Krypton 格式，原版客户端拿到后解析失败断线。缓存的字节现在带上对方的 hello 特性位，只给特性位相同的连接复用；对方的 hello 到达之前按原版格式计算。
 - **Bundle 子包过多导致断线**：一个 tick 收集到的包按每批最多 4096 个拆成多个 Bundle。原版客户端收到超过 4096 个子包的 Bundle 会直接断开，例如同一 tick 改动几千个告示牌时。
 - **安全读取上限**：只在服务器解码客户端发来的包时生效，之前客户端也会执行，登录断开原因（`readUtf(262144)`）等原版包会被拒绝。现在检查对方实际发来的长度和数量，而不是调用方声明的上限；之前既会误伤合法调用，也拦不住超长数据。
@@ -48,6 +49,7 @@
 | `batch_frames.enabled` | 新增，默认 `false` |
 | `batch_frames.max_packet_bytes` | 新增，默认 16384 |
 | `batch_frames.max_batch_bytes` | 新增，默认 262144 |
+| `entity_data_throttle.enabled` | 新增，默认 `true` |
 | `security.packet_size.read_limits_enabled` | 只作用于服务器接收的包，并检查实际长度 |
 | `security.resource_guard.watermark_low` | 高于高水位时按高水位处理 |
 | `proxy.forwarding_secret` | 注释改为说明此项未被使用（之前声称会做 HMAC 校验）；设置后启动时记录警告 |
