@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 import java.util.List;
 
-/** Lets {@code ServerEntityDataThrottleMixin} build the packet from an already filtered item list. */
+/** Lets {@code ServerEntityDataThrottleMixin} replace the packet's items with the filtered list. */
 @Mixin(ClientboundSetEntityDataPacket.class)
 public interface ClientboundSetEntityDataPacketAccessor {
     @Mutable
