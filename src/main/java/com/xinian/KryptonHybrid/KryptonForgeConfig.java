@@ -108,6 +108,7 @@ public final class KryptonForgeConfig {
     private final ForgeConfigSpec.BooleanValue                    motionDeltaEnabled;
     private final ForgeConfigSpec.IntValue                        motionDeltaThreshold;
     private final ForgeConfigSpec.BooleanValue                    packetCoalescingEnabled;
+    private final ForgeConfigSpec.BooleanValue                    entityDataThrottleEnabled;
     private final ForgeConfigSpec.BooleanValue                    blockEntityDeltaEnabled;
     private final ForgeConfigSpec.EnumValue<ProxyMode>            proxyMode;
     private final ForgeConfigSpec.ConfigValue<String>             velocityForwardingSecret;
@@ -740,6 +741,21 @@ public final class KryptonForgeConfig {
         builder.pop();
 
         builder.comment(
+                "Entity Data Throttle",
+                "Drops item stack entity data values whose encoded bytes equal the last",
+                "broadcast ones (vanilla compares item stacks by reference, so setting an",
+                "equal copy resends it).  Only the dirty value list is filtered: the",
+                "vanilla method still runs, so mods that hook ServerEntity#sendDirtyEntityData",
+                "(e.g. Epic Fight) keep working."
+        ).push("entity_data_throttle");
+
+        entityDataThrottleEnabled = builder
+                .comment("Enable item stack entity data throttling.", "Default: true")
+                .define("enabled", true);
+
+        builder.pop();
+
+        builder.comment(
                 "Block Entity NBT Delta Sync",
                 "Reduces block entity data packet size by sending only changed NBT",
                 "keys instead of the full tag.  Requires Krypton Hybrid on BOTH",
@@ -872,6 +888,7 @@ public final class KryptonForgeConfig {
         KryptonConfig.motionDeltaEnabled       = motionDeltaEnabled.get();
         KryptonConfig.motionDeltaThreshold     = motionDeltaThreshold.get();
         KryptonConfig.packetCoalescingEnabled  = packetCoalescingEnabled.get();
+        KryptonConfig.entityDataThrottleEnabled = entityDataThrottleEnabled.get();
         KryptonConfig.blockEntityDeltaEnabled  = blockEntityDeltaEnabled.get();
         KryptonConfig.proxyMode                = proxyMode.get();
         KryptonConfig.velocityForwardingSecret = velocityForwardingSecret.get();
