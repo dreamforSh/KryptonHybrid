@@ -119,3 +119,4 @@ runs/
 !gradle-wrapper.jar
 /docs/*
 !/docs/zstd-dictionary-training.md
+!/docs/assets/

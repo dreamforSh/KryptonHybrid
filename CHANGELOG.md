@@ -1,17 +1,19 @@
-# 更新日志
+# <img src="docs/assets/icons/history.svg" width="26" height="26" alt=""> 更新日志
+
+<p align="right"><img src="docs/assets/icons/globe.svg" width="14" height="14" alt=""> <b>简体中文</b> | <a href="CHANGELOG.en.md">English</a></p>
 
 ## [0.3.10] - 未发布
 
 适用于 Minecraft 1.21.1 / NeoForge 21.1。上一版本为 0.2.33。内容与 1.19.2、1.20.1 分支同步（含批量帧、区块方块数据字节对齐、客户端计算高度图），1.21.1 / NeoForge 上的实现差异已单独说明。
 
-### ⚠️ 升级须知
+### <img src="docs/assets/icons/warning.svg" width="18" height="18" alt=""> 升级须知
 
 - **服务端和客户端必须同时更新。** 压缩方式改为登录时协商，Krypton 载荷频道版本从 1 升到 2。旧版 Krypton Hybrid 与本版本互连时无法进入游戏（压缩不一致时在登录阶段断开，否则在配置阶段因频道版本不同被拒绝），不会出现数据包解析错位。
 - **`security.enabled` 默认改为 `false`。** 安全防护改为按需开启。NeoForge 不会改写已有配置文件里的值，所以老服务器保持原样；新装服务器需要防护时请手动开启，并先按自己的网络环境（代理、隧道、共享 NAT）调好按 IP 限流和超时。
 - **服务器在代理后面时请把 `proxy.mode` 设为 `VELOCITY`**（Velocity、BungeeCord 都适用）。这样后端固定使用 ZLIB，同时跳过按 IP 的连接限流和状态 ping 限流，因为所有玩家都来自代理的地址。`AUTO` 目前还没有检测功能，行为与 `VELOCITY` 相同。
 - 下文列出的默认值变更只影响新生成的配置文件，已有配置文件请按需手动修改。
 
-### 新增
+### <img src="docs/assets/icons/added.svg" width="18" height="18" alt=""> 新增
 
 - **压缩算法协商**：压缩算法和字典在登录阶段协商。只有两端都装了 Krypton Hybrid、都选了 ZSTD、字典 ID 一致，并且 `proxy.mode = NONE` 时才用 Zstd，否则自动回退到原版 ZLIB。原版客户端、代理始终使用 ZLIB。修改配置或重载字典后，新的协商令牌会立即对之后登录的玩家生效。
   - NeoForge 的频道协商发生在配置阶段，那时压缩已经开启，所以协商使用原版的登录自定义查询：服务器在发送压缩包之前询问客户端的压缩令牌并等待回答；原版客户端回答「不认识」，按 ZLIB 处理。
@@ -49,7 +51,7 @@
 - `/krypton stats` 输出新增刷新合并、批量帧和广播缓存命中率（序列化命中和压缩命中）几行；`/krypton stats reset` 会同时清零缓存计数。
 - 安全统计新增「状态 ping 丢弃」和「旧版 ping 丢弃」两项计数。
 
-### 性能优化
+### <img src="docs/assets/icons/zap.svg" width="18" height="18" alt=""> 性能优化
 
 - **区块延迟缓存（DCC）重写**：
   - 状态按连接记录，重生后仍然有效，换维度时清空。
@@ -71,7 +73,7 @@
 - 运动过滤的状态在玩家开始或停止追踪某个实体时清理，避免整局游戏中持续增长。
 - 统计快照改由专用请求载荷获取，不再借用 `/krypton stats gui` 命令；服务端按连接限速（500 ms），250 ms 内的请求共用同一份快照。服务器没有对应频道时客户端不会发送请求。
 
-### 修复
+### <img src="docs/assets/icons/fixed.svg" width="18" height="18" alt=""> 修复
 
 - **混服时原版客户端断线**：广播序列化缓存会把按某个连接编码好的字节交给同一网络线程上的其他连接。光照更新包对装了 Krypton 的客户端写成 Krypton 格式，原版客户端拿到后解析失败断线。缓存的字节现在带上连接的编码签名（NeoForge 连接类型和对方的 hello 特性位），只给签名相同的连接复用。
 - **Bundle 子包过多导致断线**：一个 tick 收集到的包按每批最多 4096 个拆成多个 Bundle。原版客户端收到超过 4096 个子包的 Bundle 会直接断开，例如同一 tick 改动几千个告示牌时。
@@ -118,7 +120,7 @@
 - `zstd_advanced.dict_required = true` 且字典加载失败时，不再让 Zstd 上下文创建失败，而是不再提供 Zstd，连接回退到 ZLIB。
 - 登录过程中配置被修改、导致协商好的字典不可用时，会直接断开连接，而不是发出对方无法解析的数据。
 
-### 配置变更
+### <img src="docs/assets/icons/sliders.svg" width="18" height="18" alt=""> 配置变更
 
 | 配置项 | 变更 |
 |---|---|
@@ -141,17 +143,17 @@
 
 客户端新增 `krypton_hybrid-client.toml`，包含 `dashboard.theme`、`dashboard.panel_opacity` 以及 `hud.*`（`visible`、`anchor`、`refresh_ms`、`show_top_mod`、`show_graph`、`show_latency`、`background_opacity`）。
 
-### Zstd 字典训练
+### <img src="docs/assets/icons/book.svg" width="18" height="18" alt=""> Zstd 字典训练
 
 - 采样时只记录真正会被压缩的包（不小于压缩阈值）。同一个包对象只记录一次，不记录 Krypton 自己的频道。写盘队列按字节数设上限。
 - 训练集集中在字典适用的包大小范围内，大包只按一定比例加入，重复样本去重。评估集按文件名固定留出，评估时按编码器实际的发送格式计算压缩效果。
 - 训练器改用命名参数（`--samples`、`--output`、`--dict-size` 等）。Gradle 任务 `trainZstdDict` 新增 `-PlargeSampleShare`、`-PevalShare`，默认输出路径改为 `run/config/krypton_hybrid.zdict`。
 - 新增文档 [docs/zstd-dictionary-training.md](docs/zstd-dictionary-training.md)。
 
-### 开发
+### <img src="docs/assets/icons/code.svg" width="18" height="18" alt=""> 开发
 
-- 新增区块编解码（字节对齐、高度图计算）和批量帧的 JUnit 测试，`gradlew test` 无需启动游戏即可运行。
+- 新增区块编解码（字节对齐、高度图计算）、批量帧和 Bundle 拆分的 JUnit 测试，`gradlew test` 无需启动游戏即可运行。
 
-### 依赖
+### <img src="docs/assets/icons/package.svg" width="18" height="18" alt=""> 依赖
 
 - zstd-jni 1.5.7-7 → 1.5.7-24
