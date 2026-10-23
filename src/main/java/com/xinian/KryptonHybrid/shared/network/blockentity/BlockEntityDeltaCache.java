@@ -9,6 +9,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 
+import java.lang.ref.WeakReference;
 import java.util.Set;
 
 /**
@@ -25,7 +26,7 @@ import java.util.Set;
  * <h3>Solution</h3>
  * <p>This cache stores the last successfully-sent {@link CompoundTag} per
  * {@link BlockPos} (packed as a {@code long}).  Before sending, the caller
- * invokes {@link #computeDelta(long, CompoundTag)} which diffs the new tag
+ * invokes {@link #computeDelta(long, Object, CompoundTag)} which diffs the new tag
  * against the cached version:</p>
  * <ul>
  *   <li><strong>No change:</strong> returns {@code null} (skip sending entirely).</li>
@@ -67,8 +68,16 @@ public final class BlockEntityDeltaCache {
     /** Maximum cached block entity positions per player. */
     private static final int MAX_ENTRIES = 512;
 
-    /** Packed BlockPos ??last-sent CompoundTag (deep copy). */
-    private final Long2ObjectLinkedOpenHashMap<CompoundTag> cache =
+    /**
+     * Last tag sent for a position (deep copy) and the block entity it came from. A new
+     * block entity at the position is a new object on the client too (it was removed
+     * and placed again), which starts from its default state, so the previous tag is
+     * no base for it.
+     */
+    private record Sent(CompoundTag tag, WeakReference<Object> owner) {}
+
+    /** Packed BlockPos → last sent. */
+    private final Long2ObjectLinkedOpenHashMap<Sent> cache =
             new Long2ObjectLinkedOpenHashMap<>();
 
     public BlockEntityDeltaCache() {}
@@ -77,22 +86,24 @@ public final class BlockEntityDeltaCache {
      * Computes the delta between the new tag and the cached (last-sent) tag.
      *
      * @param packedPos {@link BlockPos#asLong()} of the block entity
+     * @param owner     the block entity the tag comes from
      * @param newTag    the full update tag to send (must not be modified after this call)
      * @return delta tag with {@code __krypton_delta=true}, the full tag if delta is
      *         not beneficial, or {@code null} if the tag is unchanged
      */
-    public CompoundTag computeDelta(long packedPos, CompoundTag newTag) {
-        CompoundTag lastSent = cache.get(packedPos);
+    public CompoundTag computeDelta(long packedPos, Object owner, CompoundTag newTag) {
+        Sent sent = cache.get(packedPos);
+        CompoundTag lastSent = sent != null && sent.owner().get() == owner ? sent.tag() : null;
 
         if (lastSent == null) {
-            // First send ??cache and return full tag
-            putCache(packedPos, newTag.copy());
+            // First send for this block entity — cache and return full tag
+            putCache(packedPos, owner, newTag.copy());
             return newTag;
         }
 
         // Quick equality check
         if (lastSent.equals(newTag)) {
-            return null; // unchanged ??skip sending
+            return null; // unchanged — skip sending
         }
 
         // Compute delta
@@ -131,7 +142,7 @@ public final class BlockEntityDeltaCache {
         }
 
         // Update cache with the new full tag
-        putCache(packedPos, newTag.copy());
+        putCache(packedPos, owner, newTag.copy());
 
         if (changedCount == 0) {
             return null; // shouldn't happen (equals check above), but be safe
@@ -201,12 +212,12 @@ public final class BlockEntityDeltaCache {
         }
     }
 
-    private void putCache(long packedPos, CompoundTag tag) {
+    private void putCache(long packedPos, Object owner, CompoundTag tag) {
         if (!cache.containsKey(packedPos) && cache.size() >= MAX_ENTRIES) {
             // Evict oldest entry (first in insertion order)
             cache.removeFirst();
         }
-        cache.put(packedPos, tag);
+        cache.put(packedPos, new Sent(tag, new WeakReference<>(owner)));
     }
 
     private static int tagWireSize(CompoundTag tag) {

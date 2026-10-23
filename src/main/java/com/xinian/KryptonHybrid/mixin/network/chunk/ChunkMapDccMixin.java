@@ -7,14 +7,19 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import com.xinian.KryptonHybrid.mixin.network.flushconsolidation.ChunkMapLevelAccessor;
+import com.xinian.KryptonHybrid.shared.network.chunk.ChunkChangeStamp;
 import com.xinian.KryptonHybrid.shared.network.chunk.DelayedChunkCache;
 import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.List;
 
 /**
  * Implements the Delayed Chunk Cache (DCC) optimization for Krypton Hybrid.
@@ -34,6 +39,14 @@ public abstract class ChunkMapDccMixin {
 
     @Shadow
     protected abstract ChunkHolder getVisibleChunkIfPresent(long pos);
+
+    /**
+     * Set while {@code updatePlayerStatus} removes a player from this level (disconnect,
+     * dimension change, respawn): nothing is kept then, and kept chunks are dropped, so
+     * Forge's ChunkWatchEvent watch/unwatch stay paired. Server thread only.
+     */
+    @Unique
+    private boolean krypton$leavingLevel;
 
     private ServerLevel krypton$level() {
         return ((ChunkMapLevelAccessor) this).krypton$getLevel();
@@ -72,7 +85,7 @@ public abstract class ChunkMapDccMixin {
             return;
         }
 
-        if (!newWithinViewDistance && oldWithinViewDistance
+        if (!newWithinViewDistance && oldWithinViewDistance && !this.krypton$leavingLevel
                 && DelayedChunkCache.INSTANCE.onChunkLeave(player, dim, pos)) {
             ci.cancel();
         }
@@ -85,8 +98,29 @@ public abstract class ChunkMapDccMixin {
 
     @Inject(method = "updatePlayerStatus", at = @At("HEAD"))
     private void krypton$evictBeforeAdd(ServerPlayer player, boolean track, CallbackInfo ci) {
+        this.krypton$leavingLevel = !track;
         if (track) {
             krypton$evictForCenter(player);
+        } else {
+            ServerLevel level = this.krypton$level();
+            if (player.serverLevel() == level) {
+                DelayedChunkCache.INSTANCE.evictAll(player, level.dimension(), ChunkMapDccMixin::dropChunkDeferred);
+            }
+        }
+    }
+
+    @Inject(method = "updatePlayerStatus", at = @At("RETURN"))
+    private void krypton$endLeavingLevel(ServerPlayer player, boolean track, CallbackInfo ci) {
+        this.krypton$leavingLevel = false;
+    }
+
+    /** Players keeping these chunks miss the biome resend; mark them changed. */
+    @Inject(method = "resendBiomesForChunks", at = @At("HEAD"))
+    private void krypton$stampBiomeResend(List<ChunkAccess> chunks, CallbackInfo ci) {
+        for (ChunkAccess chunk : chunks) {
+            if (chunk instanceof ChunkChangeStamp stamp) {
+                stamp.krypton$markChanged();
+            }
         }
     }
 

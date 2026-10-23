@@ -185,6 +185,19 @@ public final class DelayedChunkCache {
         return Result.HIT;
     }
 
+    /** Evicts every kept chunk of {@code player} (it is leaving the level). */
+    public void evictAll(ServerPlayer player, ResourceKey<Level> dimension,
+                         BiConsumer<ServerPlayer, ChunkPos> evictCallback) {
+        ClientState state = state(player, dimension, false);
+        if (state == null || state.cached.isEmpty()) return;
+
+        long[] evicted = state.cached.keySet().toLongArray();
+        state.cached.clear();
+        for (long packedPos : evicted) {
+            evictCallback.accept(player, new ChunkPos(packedPos));
+        }
+    }
+
     /**
      * Evicts kept chunks that would be outside the client's range around the view center
      * ({@code centerX}, {@code centerZ}). Call before the player's view center moves there,
