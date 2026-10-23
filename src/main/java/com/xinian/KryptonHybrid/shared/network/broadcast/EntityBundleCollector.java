@@ -4,7 +4,6 @@ import com.xinian.KryptonHybrid.shared.network.flow.PacketCoalescer;
 import com.xinian.KryptonHybrid.shared.network.motion.MotionDeltaCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBundlePacket;
 import net.minecraft.server.network.ServerPlayerConnection;
 
@@ -101,14 +100,9 @@ public final class EntityBundleCollector {
             if (packets.isEmpty()) {
                 continue;
             }
-            if (packets.size() == 1) {
-                conn.send(packets.get(0));
-            } else {
-                // One bundle, so the client applies the tick's updates together.
-                conn.send(new ClientboundBundlePacket(
-                        (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
-                ));
-            }
+            // One bundle (split above the client's limit), so the client applies the
+            // tick's updates together.
+            ClientBundles.send(conn::send, packets);
             written += packets.size();
         }
 

@@ -70,6 +70,21 @@ final class ThreadLocalIdentityCache<V> {
         return value;
     }
 
+    /** Entry for {@code key} without touching the hit/miss counters. */
+    V peek(Object key) {
+        if (!enabled.getAsBoolean()) return null;
+        return map().get(key);
+    }
+
+    /** Counts a lookup made with {@link #peek}. */
+    void count(boolean hit) {
+        if (hit) {
+            hits.increment();
+        } else {
+            misses.increment();
+        }
+    }
+
     void put(Object key, V value) {
         if (!enabled.getAsBoolean()) return;
         IdentityHashMap<Object, V> map = map();
