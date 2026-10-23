@@ -16,7 +16,7 @@ import java.util.List;
  * {@code KryptonStatsScreen} GUI on the client.
  *
  * <p>Sent in response to {@code /krypton stats gui} so the player can see
- * real-time bandwidth, compression and bundle metrics in a graphical view.</p>
+ * real-time bandwidth, compression and flush metrics in a graphical view.</p>
  */
 public record StatsSnapshotPayload(
         long elapsedSeconds,
@@ -28,9 +28,9 @@ public record StatsSnapshotPayload(
         long savedBytes,
         double compressionRatio,
         double savingPercent,
-        long bundlesEmitted,
-        long bundlePacketsTotal,
-        long bundleBatchesObserved,
+        long consolidatedFlushes,
+        long deferredPackets,
+        long batchedPackets,
         long coalesceDroppedPackets,
         int trackedTypeCount,
         int trackedModCount,
@@ -82,9 +82,9 @@ public record StatsSnapshotPayload(
                         buf.writeVarLong(p.savedBytes);
                         buf.writeDouble(p.compressionRatio);
                         buf.writeDouble(p.savingPercent);
-                        buf.writeVarLong(p.bundlesEmitted);
-                        buf.writeVarLong(p.bundlePacketsTotal);
-                        buf.writeVarLong(p.bundleBatchesObserved);
+                        buf.writeVarLong(p.consolidatedFlushes);
+                        buf.writeVarLong(p.deferredPackets);
+                        buf.writeVarLong(p.batchedPackets);
                         buf.writeVarLong(p.coalesceDroppedPackets);
                         buf.writeVarInt(p.trackedTypeCount);
                         buf.writeVarInt(p.trackedModCount);
@@ -131,9 +131,9 @@ public record StatsSnapshotPayload(
                         long savedBytes = buf.readVarLong();
                         double compressionRatio = buf.readDouble();
                         double savingPercent = buf.readDouble();
-                        long bundlesEmitted = buf.readVarLong();
-                        long bundlePacketsTotal = buf.readVarLong();
-                        long bundleBatchesObserved = buf.readVarLong();
+                        long consolidatedFlushes = buf.readVarLong();
+                        long deferredPackets = buf.readVarLong();
+                        long batchedPackets = buf.readVarLong();
                         long coalesceDroppedPackets = buf.readVarLong();
                         int trackedTypeCount = buf.readVarInt();
                         int trackedModCount = buf.readVarInt();
@@ -173,7 +173,7 @@ public record StatsSnapshotPayload(
                                 elapsedSeconds, packetsSent, packetsReceived,
                                 bytesSentOriginal, bytesSentWire, bytesReceived,
                                 savedBytes, compressionRatio, savingPercent,
-                                bundlesEmitted, bundlePacketsTotal, bundleBatchesObserved,
+                                consolidatedFlushes, deferredPackets, batchedPackets,
                                 coalesceDroppedPackets,
                                 trackedTypeCount, trackedModCount,
                                 totalTrackedTypePackets, totalTrackedTypeBytes,
@@ -222,9 +222,9 @@ public record StatsSnapshotPayload(
                 s.getSavedBytes(),
                 s.getCompressionRatio(),
                 s.getCompressionSavingPercent(),
-                s.getBundlesEmitted(),
-                s.getBundlePacketsTotal(),
-                s.getBundleBatchesObserved(),
+                s.getConsolidatedFlushes(),
+                s.getDeferredPackets(),
+                s.getBatchedPackets(),
                 s.getCoalesceDroppedPackets(),
                 s.getTrackedTypeCount(),
                 s.getTrackedModCount(),
@@ -311,16 +311,19 @@ public record StatsSnapshotPayload(
         return packetsReceived == 0 ? 0.0 : (double) bytesReceived / (double) packetsReceived;
     }
 
-    public double bundleHitRatePercent() {
-        return bundleBatchesObserved == 0 ? 0.0 : 100.0 * bundlesEmitted / (double) bundleBatchesObserved;
+    /** Share of flushes avoided by flush consolidation: {@code 1 - flushes / held packets}. */
+    public double flushSavingPercent() {
+        return deferredPackets == 0 ? 0.0 : 100.0 * (1.0 - consolidatedFlushes / (double) deferredPackets);
     }
 
-    public double averageBundleSize() {
-        return bundlesEmitted == 0 ? 0.0 : (double) bundlePacketsTotal / (double) bundlesEmitted;
+    /** Average packets sent per consolidated flush. */
+    public double packetsPerFlush() {
+        return consolidatedFlushes == 0 ? 0.0 : (double) deferredPackets / (double) consolidatedFlushes;
     }
 
+    /** Share of collected tick packets that coalescing dropped before sending. */
     public double coalesceDropRatePercent() {
-        long base = coalesceDroppedPackets + bundlePacketsTotal;
+        long base = coalesceDroppedPackets + batchedPackets;
         return base == 0 ? 0.0 : 100.0 * coalesceDroppedPackets / (double) base;
     }
 }

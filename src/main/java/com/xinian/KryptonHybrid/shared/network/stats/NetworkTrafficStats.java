@@ -1,10 +1,12 @@
 package com.xinian.KryptonHybrid.shared.network.stats;
 
+import net.minecraft.network.protocol.Packet;
+
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
@@ -13,20 +15,20 @@ public final class NetworkTrafficStats {
     public static final NetworkTrafficStats INSTANCE = new NetworkTrafficStats();
 
     private static final class TypeStats {
-        private final AtomicLong count = new AtomicLong();
-        private final AtomicLong totalBytes = new AtomicLong();
+        private final LongAdder count = new LongAdder();
+        private final LongAdder totalBytes = new LongAdder();
 
         public void record(int bytes) {
-            count.incrementAndGet();
-            totalBytes.addAndGet(bytes);
+            count.increment();
+            totalBytes.add(bytes);
         }
 
-        public long getCount() { return count.get(); }
-        public long getTotalBytes() { return totalBytes.get(); }
+        public long getCount() { return count.sum(); }
+        public long getTotalBytes() { return totalBytes.sum(); }
 
         public double getAvgBytes() {
-            long c = count.get();
-            return c == 0 ? 0.0 : (double) totalBytes.get() / c;
+            long c = count.sum();
+            return c == 0 ? 0.0 : (double) totalBytes.sum() / c;
         }
     }
 
@@ -36,16 +38,20 @@ public final class NetworkTrafficStats {
         }
     }
 
-    private final AtomicLong packetsSent = new AtomicLong();
-    private final AtomicLong packetsReceived = new AtomicLong();
-    private final AtomicLong bytesSentOriginal = new AtomicLong();
-    private final AtomicLong bytesSentWire = new AtomicLong();
-    private final AtomicLong bytesReceived = new AtomicLong();
-    // Bundle/coalesce hit-rate counters.
-    private final AtomicLong bundlesEmitted = new AtomicLong();
-    private final AtomicLong bundlePacketsTotal = new AtomicLong();
-    private final AtomicLong bundleBatchesObserved = new AtomicLong();
-    private final AtomicLong coalesceDroppedPackets = new AtomicLong();
+    private final LongAdder packetsSent = new LongAdder();
+    private final LongAdder packetsReceived = new LongAdder();
+    private final LongAdder bytesSentOriginal = new LongAdder();
+    private final LongAdder bytesSentWire = new LongAdder();
+    private final LongAdder bytesReceived = new LongAdder();
+    // Flush consolidation: flushes that released held writes, and how many packets they carried.
+    private final LongAdder consolidatedFlushes = new LongAdder();
+    private final LongAdder deferredPackets = new LongAdder();
+    // Tick batching: packets written by the collectors, and packets coalescing dropped first.
+    private final LongAdder batchedPackets = new LongAdder();
+    private final LongAdder coalesceDroppedPackets = new LongAdder();
+    // Batch frames: frames sent, and the packets they carried.
+    private final LongAdder batchFrames = new LongAdder();
+    private final LongAdder batchFramePackets = new LongAdder();
     private final ConcurrentHashMap<String, TypeStats> perTypeStats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perModStats  = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TypeStats> perTypeWireStats = new ConcurrentHashMap<>();
@@ -55,31 +61,36 @@ public final class NetworkTrafficStats {
     private NetworkTrafficStats() {}
 
     public void recordEncode(int originalSize, int wireSize) {
-        packetsSent.incrementAndGet();
-        bytesSentOriginal.addAndGet(originalSize);
-        bytesSentWire.addAndGet(wireSize);
+        packetsSent.increment();
+        bytesSentOriginal.add(originalSize);
+        bytesSentWire.add(wireSize);
     }
 
     public void recordDecode(int payloadBytes) {
-        packetsReceived.incrementAndGet();
-        bytesReceived.addAndGet(payloadBytes);
+        packetsReceived.increment();
+        bytesReceived.add(payloadBytes);
     }
 
-    public void recordPacketType(String key, int bytes) {
-        recordInto(perTypeStats, key, bytes);
+    /** Serialized size of one outgoing packet, under its type and mod. */
+    public void recordPacket(Packet<?> packet, int bytes) {
+        PacketStatKeys.Keys keys = PacketStatKeys.of(packet);
+        recordInto(perTypeStats, keys.type(), bytes);
+        recordInto(perModStats, keys.mod(), bytes);
     }
 
-    public void recordPacketMod(String modId, int bytes) {
-        recordInto(perModStats, modId, bytes);
-    }
-
-    public void recordPacketWire(String key, String modId, int wireBytes) {
-        recordInto(perTypeWireStats, key, wireBytes);
-        recordInto(perModWireStats, modId, wireBytes);
+    /** Wire size (after compression) of one outgoing packet, under its type and mod. */
+    public void recordPacketWire(Packet<?> packet, int wireBytes) {
+        PacketStatKeys.Keys keys = PacketStatKeys.of(packet);
+        recordInto(perTypeWireStats, keys.type(), wireBytes);
+        recordInto(perModWireStats, keys.mod(), wireBytes);
     }
 
     private static void recordInto(ConcurrentHashMap<String, TypeStats> map, String key, int bytes) {
-        map.computeIfAbsent(key, k -> new TypeStats()).record(bytes);
+        TypeStats stats = map.get(key);
+        if (stats == null) {
+            stats = map.computeIfAbsent(key, k -> new TypeStats());
+        }
+        stats.record(bytes);
     }
 
     public List<TrafficEntry> getTopModsByCount(int limit)     { return topN(perModStats,      TypeStats::getCount,      limit); }
@@ -132,15 +143,17 @@ public final class NetworkTrafficStats {
     }
 
     public void reset() {
-        packetsSent.set(0);
-        packetsReceived.set(0);
-        bytesSentOriginal.set(0);
-        bytesSentWire.set(0);
-        bytesReceived.set(0);
-        bundlesEmitted.set(0);
-        bundlePacketsTotal.set(0);
-        bundleBatchesObserved.set(0);
-        coalesceDroppedPackets.set(0);
+        packetsSent.reset();
+        packetsReceived.reset();
+        bytesSentOriginal.reset();
+        bytesSentWire.reset();
+        bytesReceived.reset();
+        consolidatedFlushes.reset();
+        deferredPackets.reset();
+        batchedPackets.reset();
+        coalesceDroppedPackets.reset();
+        batchFrames.reset();
+        batchFramePackets.reset();
         perTypeStats.clear();
         perModStats.clear();
         perTypeWireStats.clear();
@@ -148,79 +161,95 @@ public final class NetworkTrafficStats {
         startTimeMs = System.currentTimeMillis();
     }
 
-    // P1-⑤ bundle/coalesce metric APIs
+    // Flush consolidation and tick batching metrics
 
-    /**
-     * Records the result of one batch flush.
-     * @param batchPlayers number of player connections that had ≥1 packet collected
-     *                     (i.e. distinct keys in the batch map)
-     * @param emittedBundles number of those players that ended up actually receiving
-     *                       a {@link net.minecraft.network.protocol.game.ClientboundBundlePacket}
-     *                       (i.e. ≥2 packets after coalescing)
-     * @param packetsInBundles total sub-packet count across all emitted bundles
-     */
-    public void recordBundleBatch(int batchPlayers, int emittedBundles, int packetsInBundles) {
-        if (batchPlayers > 0) bundleBatchesObserved.addAndGet(batchPlayers);
-        if (emittedBundles > 0) bundlesEmitted.addAndGet(emittedBundles);
-        if (packetsInBundles > 0) bundlePacketsTotal.addAndGet(packetsInBundles);
+    /** One flush that released {@code packets} writes held back by flush consolidation. */
+    public void recordConsolidatedFlush(int packets) {
+        consolidatedFlushes.increment();
+        deferredPackets.add(packets);
+    }
+
+    /** Packets the per-tick collectors wrote after coalescing. */
+    public void recordBatchedPackets(int packets) {
+        if (packets > 0) batchedPackets.add(packets);
     }
 
     public void recordCoalesceDropped(int dropped) {
-        if (dropped > 0) coalesceDroppedPackets.addAndGet(dropped);
+        if (dropped > 0) coalesceDroppedPackets.add(dropped);
     }
 
-    public long getBundlesEmitted() { return bundlesEmitted.get(); }
-    public long getBundlePacketsTotal() { return bundlePacketsTotal.get(); }
-    public long getBundleBatchesObserved() { return bundleBatchesObserved.get(); }
-    public long getCoalesceDroppedPackets() { return coalesceDroppedPackets.get(); }
+    public long getConsolidatedFlushes() { return consolidatedFlushes.sum(); }
+    public long getDeferredPackets() { return deferredPackets.sum(); }
+    public long getBatchedPackets() { return batchedPackets.sum(); }
+    public long getCoalesceDroppedPackets() { return coalesceDroppedPackets.sum(); }
 
-    public double getAvgBundleSize() {
-        long b = bundlesEmitted.get();
-        return b == 0 ? 0.0 : (double) bundlePacketsTotal.get() / (double) b;
+    /** One batch frame carrying {@code packets} packets. */
+    public void recordBatchFrame(int packets) {
+        batchFrames.increment();
+        batchFramePackets.add(packets);
     }
 
-    public double getBundleHitRate() {
-        long obs = bundleBatchesObserved.get();
-        return obs == 0 ? 0.0 : (double) bundlesEmitted.get() / (double) obs;
+    public long getBatchFrames() { return batchFrames.sum(); }
+    public long getBatchFramePackets() { return batchFramePackets.sum(); }
+
+    /** Average packets per batch frame. */
+    public double getPacketsPerBatchFrame() {
+        long frames = batchFrames.sum();
+        return frames == 0 ? 0.0 : (double) batchFramePackets.sum() / (double) frames;
+    }
+
+    /** Average packets sent per consolidated flush. */
+    public double getPacketsPerFlush() {
+        long flushes = consolidatedFlushes.sum();
+        return flushes == 0 ? 0.0 : (double) deferredPackets.sum() / (double) flushes;
+    }
+
+    /**
+     * Share of flushes avoided compared with flushing every held packet on its own:
+     * {@code 1 - flushes / packets}.
+     */
+    public double getFlushSavingRate() {
+        long packets = deferredPackets.sum();
+        return packets == 0 ? 0.0 : 1.0 - (double) consolidatedFlushes.sum() / (double) packets;
     }
 
     public long getSavedBytes() {
-        return Math.max(0L, bytesSentOriginal.get() - bytesSentWire.get());
+        return Math.max(0L, bytesSentOriginal.sum() - bytesSentWire.sum());
     }
 
     public double getAverageOriginalPacketBytes() {
-        long sent = packetsSent.get();
-        return sent == 0 ? 0.0 : (double) bytesSentOriginal.get() / (double) sent;
+        long sent = packetsSent.sum();
+        return sent == 0 ? 0.0 : (double) bytesSentOriginal.sum() / (double) sent;
     }
 
     public double getAverageWirePacketBytes() {
-        long sent = packetsSent.get();
-        return sent == 0 ? 0.0 : (double) bytesSentWire.get() / (double) sent;
+        long sent = packetsSent.sum();
+        return sent == 0 ? 0.0 : (double) bytesSentWire.sum() / (double) sent;
     }
 
     public double getAverageReceivedPacketBytes() {
-        long received = packetsReceived.get();
-        return received == 0 ? 0.0 : (double) bytesReceived.get() / (double) received;
+        long received = packetsReceived.sum();
+        return received == 0 ? 0.0 : (double) bytesReceived.sum() / (double) received;
     }
 
     public long getPacketsSent() {
-        return packetsSent.get();
+        return packetsSent.sum();
     }
 
     public long getPacketsReceived() {
-        return packetsReceived.get();
+        return packetsReceived.sum();
     }
 
     public long getBytesSentOriginal() {
-        return bytesSentOriginal.get();
+        return bytesSentOriginal.sum();
     }
 
     public long getBytesSentWire() {
-        return bytesSentWire.get();
+        return bytesSentWire.sum();
     }
 
     public long getBytesReceived() {
-        return bytesReceived.get();
+        return bytesReceived.sum();
     }
 
     public long getElapsedSeconds() {
@@ -228,8 +257,8 @@ public final class NetworkTrafficStats {
     }
 
     public double getCompressionRatio() {
-        long original = bytesSentOriginal.get();
-        long wire = bytesSentWire.get();
+        long original = bytesSentOriginal.sum();
+        long wire = bytesSentWire.sum();
         if (original == 0 || wire == 0) return 1.0;
         return (double) wire / (double) original;
     }

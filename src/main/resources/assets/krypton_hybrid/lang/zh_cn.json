@@ -6,7 +6,8 @@
   "command.krypton_hybrid.stats.sent_wire": "§7发送(链路): §a%1$s §2(%2$s/秒)",
   "command.krypton_hybrid.stats.received": "§7接收      : §b%1$s §3(%2$s/秒)",
   "command.krypton_hybrid.stats.compression": "§7压缩比: §d%1$s §7(越低越好) | 带宽节省: §a%2$s%%",
-  "command.krypton_hybrid.stats.bundles": "§7聚合包: 已发出 §a%1$s§7,平均 §f%2$s§7 子包 | 命中率 §a%3$s%% §7| 合并丢弃 §c%4$s",
+  "command.krypton_hybrid.stats.flush": "§7刷新合并: §a%1$s §7次刷新发出 §f%2$s §7个包(每次 §f%3$s§7 个,节省 §a%4$s%%§7) | 合并丢弃 §c%5$s",
+  "command.krypton_hybrid.stats.batch_frames": "§7批量帧: §a%1$s §7帧共携带 §f%2$s §7个包(每帧 §f%3$s§7 个)",
   "command.krypton_hybrid.stats.reset": "Krypton Hybrid 网络统计已重置。",
   "command.krypton_hybrid.stats.gui_sent": "已发送统计快照,请在客户端查看 GUI。",
 

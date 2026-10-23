@@ -14,41 +14,24 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Thread-local collector that batches per-player packets during the
- * {@code ChunkHolder.broadcastChanges()} phase and flushes them as
- * {@link ClientboundBundlePacket}s at the end of the broadcast loop.
+ * Collects the per-player packets of the broadcast phase of
+ * {@code ServerChunkCache.tickChunks()}: block, section, light and block-entity
+ * updates that {@code ChunkHolder.broadcastChanges()} sends through
+ * {@code ChunkHolder.broadcast} (redirected by {@code ChunkHolderBroadcastMixin}).
  *
- * <h3>Motivation</h3>
- * <p>{@code ChunkHolder.broadcastChanges()} emits block update packets
- * ({@code ClientboundSectionBlocksUpdatePacket}, {@code ClientboundBlockUpdatePacket},
- * {@code ClientboundBlockEntityDataPacket}, {@code ClientboundLightUpdatePacket})
- * for each chunk that has pending changes.  These are sent individually via
- * {@code ChunkHolder.broadcast(List, Packet)}, resulting in:</p>
- * <ul>
- *   <li>Per-packet compression (poor ratio for small payloads)</li>
- *   <li>Per-packet framing overhead (VarInt length prefix per packet)</li>
- *   <li>Multiple independent sends to the same player from different chunks</li>
- * </ul>
- *
- * <h3>Solution</h3>
- * <p>This collector works identically to {@link EntityBundleCollector} but is scoped
- * to the broadcast phase of {@code ServerChunkCache.tickChunks()}:</p>
- * <ol>
- *   <li>{@link #beginBatch()} — opens a collection window</li>
- *   <li>{@link #collect(ServerPlayer, Packet)} — appends packets per player</li>
- *   <li>{@link #endBatchAndFlush()} — wraps &ge;2 packets in a BundlePacket and sends</li>
- * </ol>
+ * <p>Works like {@link EntityBundleCollector}: {@link #endBatchAndFlush()}
+ * de-duplicates each player's packets and writes them, several of them as one
+ * {@link ClientboundBundlePacket}; the tick's flush window flushes them together with
+ * the entity packets once per player. {@code ChunkMapFlushMixin} closes this window before entity
+ * tracking starts, so block updates keep their vanilla position ahead of entity
+ * updates.</p>
  *
  * @see com.xinian.KryptonHybrid.mixin.network.flushconsolidation.ServerChunkCacheBroadcastMixin
  * @see com.xinian.KryptonHybrid.mixin.network.flushconsolidation.ChunkHolderBroadcastMixin
  */
 public final class BroadcastBundleCollector {
 
-    /**
-     * Thread-local batch storage.  Non-null only while a collection window is open.
-     * Uses {@link IdentityHashMap} because {@link ServerPlayer} instances are
-     * singletons — identity comparison is correct and fast.
-     */
+    /** Non-null only while a collection window is open. Identity-keyed: one per player. */
     private static final ThreadLocal<Map<ServerPlayer, List<Packet<?>>>> BATCH =
             new ThreadLocal<>();
 
@@ -59,18 +42,16 @@ public final class BroadcastBundleCollector {
         BATCH.set(new IdentityHashMap<>());
     }
 
-    /** Returns {@code true} if a collection window is currently open. */
+    /** Whether a collection window is open on this thread. */
     public static boolean isCollecting() {
         return BATCH.get() != null;
     }
 
     /**
-     * Collects a packet for deferred bundled delivery.
+     * Collects {@code packet} for {@code player} if a window is open.
      *
-     * @param player the target player
-     * @param packet the packet to collect
-     * @return {@code true} if collected (caller must NOT send);
-     *         {@code false} if no batch is active (caller must send normally)
+     * @return {@code true} if collected (the caller must not send it), {@code false}
+     *         if no window is open (the caller sends it normally)
      */
     public static boolean collect(ServerPlayer player, Packet<?> packet) {
         Map<ServerPlayer, List<Packet<?>>> batch = BATCH.get();
@@ -93,14 +74,9 @@ public final class BroadcastBundleCollector {
     }
 
     /**
-     * Closes the current collection window and sends all collected packets.
-     * <ul>
-     *   <li>0 packets: no-op</li>
-     *   <li>1 packet: sent directly without bundle overhead</li>
-     *   <li>2+ packets: wrapped in a {@link ClientboundBundlePacket}</li>
-     * </ul>
+     * Closes the window and writes each player's collected packets after coalescing.
+     * Safe to call when no window is open.
      */
-    @SuppressWarnings("unchecked")
     public static void endBatchAndFlush() {
         Map<ServerPlayer, List<Packet<?>>> batch = BATCH.get();
         BATCH.remove();
@@ -109,41 +85,28 @@ public final class BroadcastBundleCollector {
             return;
         }
 
-        int batchPlayers = 0;
-        int emittedBundles = 0;
-        int packetsInBundles = 0;
-
+        int written = 0;
         for (Map.Entry<ServerPlayer, List<Packet<?>>> entry : batch.entrySet()) {
             ServerPlayer player = entry.getKey();
             List<Packet<?>> packets = entry.getValue();
 
-            if (packets.isEmpty()) {
-                continue;
-            }
-
-            // Coalesce redundant packets (head-rot, motion, data, block-entity dedup)
             PacketCoalescer.coalesce(packets);
-
-            // P1 Motion/Teleport delta filter (uses player.connection)
             MotionDeltaCache.filter(player.connection, packets);
 
             if (packets.isEmpty()) {
                 continue;
             }
-            batchPlayers++;
-
             if (packets.size() == 1) {
                 player.connection.send(packets.get(0));
             } else {
-                emittedBundles++;
-                packetsInBundles += packets.size();
+                // One bundle, so the client applies the tick's updates together.
                 player.connection.send(new ClientboundBundlePacket(
                         (Iterable<Packet<? super ClientGamePacketListener>>) (Iterable<?>) packets
                 ));
             }
+            written += packets.size();
         }
 
-        NetworkTrafficStats.INSTANCE.recordBundleBatch(batchPlayers, emittedBundles, packetsInBundles);
+        NetworkTrafficStats.INSTANCE.recordBatchedPackets(written);
     }
 }
-

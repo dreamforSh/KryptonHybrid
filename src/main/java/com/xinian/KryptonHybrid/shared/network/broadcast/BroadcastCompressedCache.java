@@ -20,22 +20,26 @@ import net.minecraft.network.protocol.game.ClientboundLightUpdatePacket;
  * for repeat encounters.</p>
  *
  * <h3>Scope restriction</h3>
- * <p>Only large broadcast packets benefit (chunk + light updates).  Caching
- * every packet would waste memory and inflate the LRU.  See
- * {@link #isCacheable(Packet)}.</p>
+ * <p>Only large broadcast packets benefit (chunk + light updates), and only when
+ * they were actually compressed. See {@link #isCacheable(Packet)}.</p>
+ *
+ * <h3>Dictionaries</h3>
+ * <p>Each entry remembers the Zstd dictionary it was compressed with; a connection
+ * using another one (after a dictionary reload) gets a miss, never foreign bytes.</p>
  *
  * <h3>Lifecycle</h3>
- * <p>Same as the parent cache — {@link ThreadLocal}, capped at
- * {@link #MAX_ENTRIES} per thread, full-clear on overflow.  Smaller cap (64)
- * because compressed chunk packets are large (~8 KB each) and we don't want
- * unbounded heap retention.</p>
+ * <p>Entries live for one server tick (see {@link ThreadLocalIdentityCache}), capped
+ * at {@link #MAX_ENTRIES} per thread because compressed chunk packets are large
+ * (~8 KB each).</p>
  */
 public final class BroadcastCompressedCache {
 
-    /** Cap per-thread entries.  64 × ~8 KB ≈ 0.5 MB worst case. */
+    /** Cap per-thread entries.  64 x ~8 KB = 0.5 MB worst case. */
     private static final int MAX_ENTRIES = 64;
 
-    private static final ThreadLocalIdentityCache<byte[]> CACHE =
+    private record Wire(byte[] bytes, Object dictionary) {}
+
+    private static final ThreadLocalIdentityCache<Wire> CACHE =
             new ThreadLocalIdentityCache<>(MAX_ENTRIES, () -> KryptonConfig.broadcastCompressedCacheEnabled);
 
     private BroadcastCompressedCache() {}
@@ -46,12 +50,28 @@ public final class BroadcastCompressedCache {
             || packet instanceof ClientboundLightUpdatePacket;
     }
 
-    public static byte[] get(Object packet) {
-        return CACHE.get(packet);
+    /**
+     * Wire bytes for {@code packet} compressed with {@code dictionary} (identity; may be
+     * {@code null} for no dictionary), or {@code null}.
+     */
+    public static byte[] get(Object packet, Object dictionary) {
+        Wire wire = CACHE.get(packet);
+        return wire != null && wire.dictionary() == dictionary ? wire.bytes() : null;
     }
 
-    public static void put(Object packet, byte[] bytes) {
-        CACHE.put(packet, bytes);
+    public static void put(Object packet, Object dictionary, byte[] bytes) {
+        CACHE.put(packet, new Wire(bytes, dictionary));
+    }
+
+    public static long hits() {
+        return CACHE.hits();
+    }
+
+    public static long misses() {
+        return CACHE.misses();
+    }
+
+    public static void resetCounters() {
+        CACHE.resetCounters();
     }
 }
-

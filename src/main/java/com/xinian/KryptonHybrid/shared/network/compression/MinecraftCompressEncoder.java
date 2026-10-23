@@ -7,11 +7,9 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
-import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
-import net.minecraft.resources.ResourceLocation;
 import com.xinian.KryptonHybrid.shared.network.broadcast.BroadcastSerializationCache;
 import com.xinian.KryptonHybrid.shared.network.stats.NetworkTrafficStats;
+import com.xinian.KryptonHybrid.shared.network.util.ReservedFrameHeader;
 
 public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
 
@@ -35,6 +33,7 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
       wrappedBuf.writeVarInt(0);
       out.writeBytes(msg);
     } else {
+      int start = msg.readerIndex();
       wrappedBuf.writeVarInt(uncompressed);
       ByteBuf compatibleIn = MoreByteBufUtils.ensureCompatible(ctx.alloc(), compressor, msg);
       try {
@@ -42,10 +41,20 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
       } finally {
         compatibleIn.release();
       }
+      // Already-compressed data can grow: send it raw instead. Raw packets above the
+      // threshold are accepted by vanilla's decoder and ours.
+      if (out.writerIndex() - startWireIndex >= 1 + uncompressed) {
+        out.writerIndex(startWireIndex);
+        wrappedBuf.writeVarInt(0);
+        out.writeBytes(msg, start, uncompressed);
+      }
+      msg.readerIndex(start + uncompressed);
     }
     int wire = out.writerIndex() - startWireIndex;
     NetworkTrafficStats.INSTANCE.recordEncode(uncompressed, wire);
-    kryptonRecordWirePacket(packet, wire);
+    if (packet != null && wire > 0) {
+      NetworkTrafficStats.INSTANCE.recordPacketWire(packet, wire);
+    }
   }
 
   @Override
@@ -59,8 +68,10 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
     //    size the compressed size will ever be is the input size minus one.
     // - Uncompressed
     //    This is fairly obvious - we will then have one more than the uncompressed size.
-    int initialBufferSize = msg.readableBytes() + 1;
-    return MoreByteBufUtils.preferredBuffer(ctx.alloc(), compressor, initialBufferSize);
+    //
+    // Plus room in front for the frame length (see ReservedFrameHeader).
+    int initialBufferSize = ReservedFrameHeader.SIZE + msg.readableBytes() + 1;
+    return ReservedFrameHeader.reserve(MoreByteBufUtils.preferredBuffer(ctx.alloc(), compressor, initialBufferSize));
   }
 
   @Override
@@ -71,38 +82,4 @@ public class MinecraftCompressEncoder extends MessageToByteEncoder<ByteBuf> {
   public void setThreshold(int threshold) {
     this.threshold = threshold;
   }
-
-  private static void kryptonRecordWirePacket(Packet<?> packet, int wireBytes) {
-    if (packet == null || wireBytes <= 0) return;
-    NetworkTrafficStats.INSTANCE.recordPacketWire(
-        kryptonResolveKey(packet),
-        kryptonResolveModId(packet),
-        wireBytes);
-  }
-
-  private static String kryptonResolveKey(Packet<?> packet) {
-    if (packet instanceof ClientboundCustomPayloadPacket cp) {
-      ResourceLocation id = cp.payload().type().id();
-      return "custom:" + id.getNamespace() + "/" + id.getPath();
-    }
-    if (packet instanceof ServerboundCustomPayloadPacket sp) {
-      ResourceLocation id = sp.payload().type().id();
-      return "custom:" + id.getNamespace() + "/" + id.getPath();
-    }
-    return packet.getClass().getSimpleName();
-  }
-
-  private static String kryptonResolveModId(Packet<?> packet) {
-    if (packet instanceof ClientboundCustomPayloadPacket cp) {
-      return cp.payload().type().id().getNamespace();
-    }
-    if (packet instanceof ServerboundCustomPayloadPacket sp) {
-      return sp.payload().type().id().getNamespace();
-    }
-    String pkg = packet.getClass().getPackageName();
-    if (pkg.startsWith("net.minecraft.")) return "minecraft";
-    String[] parts = pkg.split("\\.", 4);
-    return parts.length >= 3 ? parts[2] : "unknown";
-  }
 }
-

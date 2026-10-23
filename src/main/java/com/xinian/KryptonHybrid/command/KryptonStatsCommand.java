@@ -117,11 +117,18 @@ public final class KryptonStatsCommand {
         source.sendSuccess(() -> t("command.krypton_hybrid.stats.compression",
                 String.format("%.4f", ratio),
                 String.format("%.2f", savingPct)), false);
-        source.sendSuccess(() -> t("command.krypton_hybrid.stats.bundles",
-                String.format("%,d", stats.getBundlesEmitted()),
-                String.format("%.2f", stats.getAvgBundleSize()),
-                String.format("%.1f", stats.getBundleHitRate() * 100.0),
+        source.sendSuccess(() -> t("command.krypton_hybrid.stats.flush",
+                String.format("%,d", stats.getConsolidatedFlushes()),
+                String.format("%,d", stats.getDeferredPackets()),
+                String.format("%.1f", stats.getPacketsPerFlush()),
+                String.format("%.1f", stats.getFlushSavingRate() * 100.0),
                 String.format("%,d", stats.getCoalesceDroppedPackets())), false);
+        if (KryptonConfig.batchFramesEnabled || stats.getBatchFrames() > 0) {
+            source.sendSuccess(() -> t("command.krypton_hybrid.stats.batch_frames",
+                    String.format("%,d", stats.getBatchFrames()),
+                    String.format("%,d", stats.getBatchFramePackets()),
+                    String.format("%.1f", stats.getPacketsPerBatchFrame())), false);
+        }
 
         return 1;
     }

@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  *       handshake packet. Timeout: 5s (configurable). Prevents half-open connections
  *       from occupying resources.</li>
  *   <li><strong>LOGIN</strong> — handshake received, encryption/compression being
- *       negotiated. Timeout: 10s (configurable). Covers Velocity forwarding, Mojang
+ *       negotiated. Timeout: 30s (configurable). Covers Velocity forwarding, Mojang
  *       session verification, etc.</li>
  *   <li><strong>PLAY</strong> — game session active. Timeout: 30s (configurable).
  *       Vanilla already has its own keepalive; this is a safety net for completely
@@ -52,6 +52,11 @@ public class HandshakeTimeoutHandler extends ReadTimeoutHandler {
 
     @Override
     protected void readTimedOut(ChannelHandlerContext ctx) throws Exception {
+        // Security switched off after this connection was set up: stay inert and leave
+        // timeouts to vanilla's own read timeout.
+        if (!KryptonConfig.securityEnabled) {
+            return;
+        }
         SecurityMetrics.INSTANCE.recordTimeout();
         LOGGER.debug("[Krypton Security] Read timeout in {} stage for {}",
                 currentStage, ctx.channel().remoteAddress());
@@ -63,9 +68,12 @@ public class HandshakeTimeoutHandler extends ReadTimeoutHandler {
      *
      * <p>This replaces this handler in the pipeline with a new instance
      * configured for the target stage's timeout value.</p>
+     *
+     * <p>Not gated on {@code securityEnabled}: a handler installed while security was
+     * on must keep following the connection, or a later re-enable would leave a
+     * playing connection on the 5 s handshake timeout.</p>
      */
     public static void advanceStage(ChannelHandlerContext ctx, Stage newStage) {
-        if (!KryptonConfig.securityEnabled) return;
         if (ctx.pipeline().get(HANDLER_NAME) == null) return;
 
         int timeoutSec = switch (newStage) {
@@ -89,7 +97,6 @@ public class HandshakeTimeoutHandler extends ReadTimeoutHandler {
      * Convenience static method that works with a pipeline directly.
      */
     public static void advanceStage(io.netty.channel.Channel channel, Stage newStage) {
-        if (!KryptonConfig.securityEnabled) return;
         var handler = channel.pipeline().get(HANDLER_NAME);
         if (handler != null) {
             ChannelHandlerContext ctx = channel.pipeline().context(HANDLER_NAME);

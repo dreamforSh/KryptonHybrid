@@ -6,7 +6,8 @@
   "command.krypton_hybrid.stats.sent_wire": "§7Sent Wire     : §a%1$s §2(%2$s/s)",
   "command.krypton_hybrid.stats.received": "§7Received      : §b%1$s §3(%2$s/s)",
   "command.krypton_hybrid.stats.compression": "§7Compression Ratio: §d%1$s §7(lower = better) | Bandwidth Saving: §a%2$s%%",
-  "command.krypton_hybrid.stats.bundles": "§7Bundles: §a%1$s §7emitted, avg §f%2$s §7sub-pkts | hit §a%3$s%% §7| coalesce dropped §c%4$s",
+  "command.krypton_hybrid.stats.flush": "§7Flush batching: §a%1$s §7flushes for §f%2$s §7packets (§f%3$s§7/flush, §a%4$s%% §7saved) | coalesce dropped §c%5$s",
+  "command.krypton_hybrid.stats.batch_frames": "§7Batch frames: §a%1$s §7frames carried §f%2$s §7packets (§f%3$s§7/frame)",
   "command.krypton_hybrid.stats.reset": "Krypton Hybrid network statistics have been reset.",
   "command.krypton_hybrid.stats.gui_sent": "Stats GUI snapshot sent. Open it on the client to view.",
 

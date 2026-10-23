@@ -1,8 +1,10 @@
 package com.xinian.KryptonHybrid.shared.network.blockentity;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
@@ -37,10 +39,17 @@ import java.util.Set;
  * </ul>
  *
  * <h3>Cache eviction</h3>
- * <p>The cache uses a LRU-ordered {@link Long2ObjectLinkedOpenHashMap} with a
- * configurable maximum size ({@link #MAX_ENTRIES}).  Oldest entries are evicted
- * when the limit is reached, causing a full-tag send on next update (correct but
- * slightly less efficient).</p>
+ * <p>The cache is an insertion-ordered (FIFO) {@link Long2ObjectLinkedOpenHashMap}
+ * capped at {@link #MAX_ENTRIES}.  Oldest entries are evicted when the limit is
+ * reached, causing a full-tag send on next update (correct but slightly less
+ * efficient).</p>
+ *
+ * <h3>Staying in sync with the client</h3>
+ * <p>Entries for a chunk are dropped whenever that chunk is (re)sent to the player
+ * ({@link #evictChunk(int, int)}), because the client rebuilds those block entities
+ * from the chunk packet. The next update for such a position is therefore a full
+ * tag, which also re-seeds the client's delta base. This covers chunk reloads,
+ * dimension changes and respawns (positions are not dimension-qualified).</p>
  *
  * <h3>Thread safety</h3>
  * <p>One instance per player, accessed only from the server main thread.</p>
@@ -149,8 +158,51 @@ public final class BlockEntityDeltaCache {
         cache.clear();
     }
 
+    /** Evicts every cached position inside the given chunk. */
+    public void evictChunk(int chunkX, int chunkZ) {
+        if (cache.isEmpty()) {
+            return;
+        }
+        LongIterator it = cache.keySet().iterator();
+        while (it.hasNext()) {
+            long packedPos = it.nextLong();
+            if (SectionPos.blockToSectionCoord(BlockPos.getX(packedPos)) == chunkX
+                    && SectionPos.blockToSectionCoord(BlockPos.getZ(packedPos)) == chunkZ) {
+                it.remove();
+            }
+        }
+    }
+
+    /** Returns {@code true} if {@code tag} is a delta produced by {@link #computeDelta}. */
+    public static boolean isDelta(CompoundTag tag) {
+        return tag != null && tag.getBoolean(DELTA_MARKER_KEY);
+    }
+
+    /**
+     * Applies a delta produced by {@link #computeDelta} to {@code base} in place,
+     * turning it into the full tag the server sent.
+     */
+    public static void applyDelta(CompoundTag base, CompoundTag delta) {
+        if (delta.contains(REMOVED_KEYS_KEY)) {
+            for (String key : delta.getString(REMOVED_KEYS_KEY).split(",")) {
+                if (!key.isEmpty()) {
+                    base.remove(key);
+                }
+            }
+        }
+        for (String key : delta.getAllKeys()) {
+            if (key.equals(DELTA_MARKER_KEY) || key.equals(REMOVED_KEYS_KEY)) {
+                continue;
+            }
+            Tag value = delta.get(key);
+            if (value != null) {
+                base.put(key, value.copy());
+            }
+        }
+    }
+
     private void putCache(long packedPos, CompoundTag tag) {
-        if (cache.size() >= MAX_ENTRIES) {
+        if (!cache.containsKey(packedPos) && cache.size() >= MAX_ENTRIES) {
             // Evict oldest entry (first in insertion order)
             cache.removeFirst();
         }

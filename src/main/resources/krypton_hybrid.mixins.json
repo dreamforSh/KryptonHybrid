@@ -42,13 +42,17 @@
     "network.pipeline.LoginTimeoutAdvanceMixin",
     "network.pipeline.ConfigurationFinishPhaseMixin",
     "network.pipeline.compression.ConnectionMixin",
+    "network.pipeline.compression.ClientboundCustomQueryPacketMixin",
+    "network.pipeline.compression.ServerLoginCompressionMixin",
+    "network.pipeline.compression.ServerboundCustomQueryAnswerPacketMixin",
     "network.pipeline.encryption.ConnectionMixin",
     "network.pipeline.encryption.ServerLoginPacketListenerImplMixin"
   ],
   "client": [
     "fastchunkentityaccess.ClientLevelMixin",
     "fastchunkentityaccess.TransientEntitySectionManagerAccessor",
-    "network.blockentity.ClientBlockEntityDeltaMixin"
+    "network.blockentity.ClientBlockEntityDeltaMixin",
+    "network.pipeline.compression.ClientHandshakeCompressionMixin"
   ],
   "injectors": {
     "defaultRequire": 1

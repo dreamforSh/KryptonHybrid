@@ -162,7 +162,7 @@ public final class KryptonStatsScreen extends Screen {
     private void buildOverview(int left, int top, int width, int height, int gap, boolean singleColumn) {
         long elapsed = Math.max(1L, snap.elapsedSeconds());
         long snapshotAgeMs = KryptonStatsClientController.latestSnapshotAgeMs();
-        double bundleHit = snap.bundleHitRatePercent();
+        double bundleHit = snap.flushSavingPercent();
 
         int cols = width < 380 ? 2 : 4;
         int rows = (4 + cols - 1) / cols;
@@ -212,7 +212,7 @@ public final class KryptonStatsScreen extends Screen {
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.received_rate",
                     formatBytesRate(snap.bytesReceived(), snap.receivedBytesPerSecond()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
-                    String.format("%.1f%%", snap.bundleHitRatePercent()), qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
+                    String.format("%.1f%%", snap.flushSavingPercent()), qualityColor(snap.flushSavingPercent(), 70.0, 35.0));
             drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_drop_rate",
                     String.format("%.1f%%", snap.coalesceDropRatePercent()), inverseQualityColor(snap.coalesceDropRatePercent(), 5.0, 15.0));
         });
@@ -263,15 +263,13 @@ public final class KryptonStatsScreen extends Screen {
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.avg_recv_packet",
                     String.format("%.1f B", snap.averageReceivedPacketBytes()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundles_emitted",
-                    String.format("%,d", snap.bundlesEmitted()));
-            ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_batches_observed",
-                    String.format("%,d", snap.bundleBatchesObserved()));
+                    String.format("%,d", snap.consolidatedFlushes()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_packets_total",
-                    String.format("%,d", snap.bundlePacketsTotal()));
+                    String.format("%,d", snap.deferredPackets()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_avg_size",
-                    String.format("%.2f", snap.averageBundleSize()));
+                    String.format("%.2f", snap.packetsPerFlush()));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.bundle_hit_rate",
-                    String.format("%.1f%%", snap.bundleHitRatePercent()), qualityColor(snap.bundleHitRatePercent(), 70.0, 35.0));
+                    String.format("%.1f%%", snap.flushSavingPercent()), qualityColor(snap.flushSavingPercent(), 70.0, 35.0));
             ly = drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_dropped",
                     String.format("%,d", snap.coalesceDroppedPackets()));
             drawMetric(g, x, ly, w, "gui.krypton_hybrid.label.coalesce_drop_rate",
@@ -845,8 +843,8 @@ public final class KryptonStatsScreen extends Screen {
                 lines.add(Component.translatable("gui.krypton_hybrid.tooltip.bundle_hit.desc"));
                 lines.add(Component.translatable("gui.krypton_hybrid.tooltip.bundle_hit.value",
                         String.format("%.1f%%", bundleHit),
-                        String.format("%,d", snap.bundlesEmitted()),
-                        String.format("%,d", snap.bundleBatchesObserved())));
+                        String.format("%,d", snap.consolidatedFlushes()),
+                        String.format("%,d", snap.deferredPackets())));
             }
             case 3 -> {
                 lines.add(Component.translatable("gui.krypton_hybrid.tooltip.snapshot_age.title"));

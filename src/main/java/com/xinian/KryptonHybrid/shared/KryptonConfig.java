@@ -91,15 +91,18 @@ public final class KryptonConfig {
 
     /**
      * Path to the pre-trained Zstd dictionary file (.zdict).
-     * Relative paths are resolved from the game working directory.
+     * Relative paths are resolved from the game directory.
      */
     public static volatile String zstdDictPath = "config/krypton_hybrid.zdict";
 
     /**
-     * If true, dictionary load failure is fatal for Zstd context creation.
-     * If false, Krypton logs a warning and falls back to plain Zstd.
+     * If true and the dictionary fails to load, Zstd is not offered (connections use zlib).
+     * If false, connections use Zstd without a dictionary. The failure is logged either way.
      */
     public static volatile boolean zstdDictRequired = false;
+
+    /** Packets larger than this are compressed without the dictionary. */
+    public static volatile int zstdDictMaxPacketBytes = 16384;
 
     /**
      * Captures serialized packet bytes before Zstd compression so administrators can
@@ -109,7 +112,7 @@ public final class KryptonConfig {
     public static volatile boolean zstdDictTrainingCaptureEnabled = false;
 
     /** Directory where dictionary-training packet samples are written. */
-    public static volatile String zstdDictTrainingSamplesDir = "run/krypton_zstd_samples";
+    public static volatile String zstdDictTrainingSamplesDir = "krypton_zstd_samples";
 
     /** Maximum number of packet samples captured in one JVM session. */
     public static volatile int zstdDictTrainingMaxSamples = 12000;
@@ -123,10 +126,25 @@ public final class KryptonConfig {
     /** Maximum serialized packet size accepted by the sample recorder. */
     public static volatile int zstdDictTrainingMaxBytes = 256 * 1024;
 
+    // --- Batch frames ---
+
+    /**
+     * If {@code true}, the server sends the packets of each flush as one compressed frame
+     * to clients that agreed to batch frames (Krypton Hybrid with Zstd).
+     * Default: {@code false}.
+     */
+    public static volatile boolean batchFramesEnabled = false;
+
+    /** Packets larger than this leave in a frame of their own. Default: 16384. */
+    public static volatile int batchFramesMaxPacketBytes = 16384;
+
+    /** Uncompressed size of one batch frame; a full batch is sent and a new one started. */
+    public static volatile int batchFramesMaxBatchBytes = 256 * 1024;
+
     // --- Network security / independent packet control ---
 
-    /** Global security kill-switch. */
-    public static volatile boolean securityEnabled = true;
+    /** Global security kill-switch (off by default). */
+    public static volatile boolean securityEnabled = false;
 
     /** Sustained connection attempts per second per remote IP. */
     public static volatile int securityConnectionRatePerSecond = 8;
@@ -155,7 +173,7 @@ public final class KryptonConfig {
 
 
     public static volatile int securityHandshakeTimeoutSec = 5;
-    public static volatile int securityLoginTimeoutSec = 10;
+    public static volatile int securityLoginTimeoutSec = 30;
     public static volatile int securityPlayTimeoutSec = 30;
 
     /** Maximum decoded frame size accepted after packet splitting. */
@@ -273,12 +291,11 @@ public final class KryptonConfig {
 
     /**
      * If {@code true}, sub-packets emitted between {@code BundleDelimiterPacket}
-     * frames are forcibly compressed even when their individual size is below
-     * {@link #zstdLevel}-paired compression threshold.  Combined with a loaded
-     * Zstd dictionary, this typically reduces total bundle wire size by 10–25%
-     * because small sub-packets gain access to the shared dictionary entropy.
-     * The compressor falls back to raw output if compressed size would exceed
-     * uncompressed size, so enabling this never causes wire growth.
+     * frames are forcibly compressed even when their individual size is below the
+     * compression threshold.  Combined with a loaded Zstd dictionary, small
+     * sub-packets gain access to the shared dictionary entropy.  The compressor falls
+     * back to raw output if compressed size would exceed uncompressed size, so
+     * enabling this never causes wire growth.
      * Default: {@code true}.
      */
     public static volatile boolean bundleAlwaysCompress = true;
@@ -306,6 +323,14 @@ public final class KryptonConfig {
     // --- P1 Cross-tick micro-batch flush ---
 
     /**
+     * If {@code true}, each player's flush is held for the whole server tick and
+     * released by vanilla's per-connection flush in the connection phase, so world,
+     * entity, block-entity and player ticks share one flush per player.
+     * Default: {@code true}.
+     */
+    public static volatile boolean tickFlushEnabled = true;
+
+    /**
      * If {@code true}, the entity-tick auto-flush re-enable is replaced by a
      * deferred channel flush scheduled on the connection's Netty event loop.
      * This coalesces flushes between the entity-tick and the immediately
@@ -321,15 +346,13 @@ public final class KryptonConfig {
      */
     public static volatile int microBatchFlushDelayMs = 5;
 
-    // --- P1 Motion / Teleport delta filter ---
+    // --- P1 Motion delta filter ---
 
     /**
-     * If {@code true}, redundant {@code ClientboundSetEntityMotionPacket} and
-     * {@code ClientboundTeleportEntityPacket} updates whose components have not
-     * changed by more than {@link #motionDeltaThreshold} encoded units (motion)
-     * or {@link #teleportDeltaSquared} squared blocks (teleport) since the last
-     * sent value for that entity → that player are dropped.  Significantly cuts
-     * projectile/dropped-item packet count.
+     * If {@code true}, redundant {@code ClientboundSetEntityMotionPacket} updates whose
+     * components have not changed by more than {@link #motionDeltaThreshold} encoded
+     * units since the last value sent for that entity to that player are dropped.
+     * Significantly cuts projectile/dropped-item packet count.
      * Default: {@code true}.
      */
     public static volatile boolean motionDeltaEnabled = true;
@@ -341,13 +364,7 @@ public final class KryptonConfig {
      */
     public static volatile int motionDeltaThreshold = 40;
 
-    /**
-     * Squared-distance tolerance (blocks²) for teleport delta filtering.  Default:
-     * {@code 1.0E-4} (0.01-block radius).
-     */
-    public static volatile double teleportDeltaSquared = 1.0E-4;
-
-    // --- P1-③ Packet Coalescing ---
+    // --- P1-??Packet Coalescing ---
 
     /**
      * Whether to deduplicate redundant packets within the entity-tracking bundle

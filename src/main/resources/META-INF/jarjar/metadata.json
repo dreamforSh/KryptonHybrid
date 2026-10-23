@@ -6,10 +6,10 @@
         "artifact": "zstd-jni"
       },
       "version": {
-        "range": "[1.5.7-7,)",
-        "artifactVersion": "1.5.7-7"
+        "range": "[1.5.7-24,)",
+        "artifactVersion": "1.5.7-24"
       },
-      "path": "META-INF/jarjar/zstd-jni-1.5.7-7.jar",
+      "path": "META-INF/jarjar/zstd-jni-1.5.7-24.jar",
       "isObfuscated": false
     },
 

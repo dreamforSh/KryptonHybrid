@@ -26,17 +26,16 @@ import com.xinian.KryptonHybrid.shared.KryptonConfig;
  * set — typically {@code totalPlayers / (2 × cores)} connections per thread.</p>
  *
  * <h3>Lifecycle</h3>
- * <p>The cache is bounded by {@link #MAX_ENTRIES}.  When the limit is reached,
- * the entire map is cleared.  Because Packet objects are short-lived (created each
- * tick, unreferenced after the pipeline flush), the IdentityHashMap entries
- * naturally become stale and don't prevent GC once cleared.</p>
+ * <p>Entries live for one server tick ({@link #onServerTick()}), so packets are not
+ * kept past the tick that broadcast them. {@link #MAX_ENTRIES} is only a safety
+ * net; the map is cleared if a single tick ever exceeds it.</p>
  *
  * @see PacketEncoderMixin
  */
 public final class BroadcastSerializationCache {
 
-    /** Maximum cached entries before a full clear.  256 covers a typical tick. */
-    private static final int MAX_ENTRIES = 256;
+    /** Safety cap per thread and tick; entries are normally dropped when the tick ends. */
+    private static final int MAX_ENTRIES = 1024;
 
     private static final ThreadLocalIdentityCache<byte[]> CACHE =
             new ThreadLocalIdentityCache<>(MAX_ENTRIES, () -> KryptonConfig.broadcastCacheEnabled);
@@ -60,7 +59,7 @@ public final class BroadcastSerializationCache {
 
     public static Object pollCurrentPacket() {
         Object p = CURRENT_PACKET.get();
-        if (p != null) CURRENT_PACKET.remove();
+        if (p != null) CURRENT_PACKET.set(null);
         return p;
     }
 
@@ -84,6 +83,23 @@ public final class BroadcastSerializationCache {
      */
     public static void put(Object packet, byte[] bytes) {
         CACHE.put(packet, bytes);
+    }
+
+    /** Starts a new server tick for both broadcast caches (server thread). */
+    public static void onServerTick() {
+        ThreadLocalIdentityCache.nextTick();
+    }
+
+    public static long hits() {
+        return CACHE.hits();
+    }
+
+    public static long misses() {
+        return CACHE.misses();
+    }
+
+    public static void resetCounters() {
+        CACHE.resetCounters();
     }
 
     /** Clears the entire cache for the current thread. */
