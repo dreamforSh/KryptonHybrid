@@ -12,11 +12,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Server → client snapshot of {@link NetworkTrafficStats} used to drive the
- * {@code KryptonStatsScreen} GUI on the client.
- *
- * <p>Sent in response to {@code /krypton stats gui} so the player can see
- * real-time bandwidth, compression and flush metrics in a graphical view.</p>
+ * Server-to-client snapshot of {@link NetworkTrafficStats} used by the stats GUI
+ * and the HUD. Sent in answer to a {@link StatsRequestPayload} and by
+ * {@code /krypton stats gui}; a snapshot never opens the dashboard by itself
+ * (see {@link OpenDashboardPayload}).
  */
 public record StatsSnapshotPayload(
         long elapsedSeconds,
@@ -58,6 +57,8 @@ public record StatsSnapshotPayload(
         long secAnomalyDisconnects,
         long secWritesDropped,
         long secWatermarkBreaches,
+        long secStatusRequestsDropped,
+        long secLegacyQueriesDropped,
         List<ModEntry> topMods
 ) implements CustomPacketPayload {
 
@@ -112,6 +113,8 @@ public record StatsSnapshotPayload(
                         buf.writeVarLong(p.secAnomalyDisconnects);
                         buf.writeVarLong(p.secWritesDropped);
                         buf.writeVarLong(p.secWatermarkBreaches);
+                        buf.writeVarLong(p.secStatusRequestsDropped);
+                        buf.writeVarLong(p.secLegacyQueriesDropped);
                         int n = Math.min(p.topMods.size(), MAX_TOP_MODS);
                         buf.writeVarInt(n);
                         for (int i = 0; i < n; i++) {
@@ -161,6 +164,8 @@ public record StatsSnapshotPayload(
                         long secAnomalyDisconnects = buf.readVarLong();
                         long secWritesDropped = buf.readVarLong();
                         long secWatermarkBreaches = buf.readVarLong();
+                        long secStatusRequestsDropped = buf.readVarLong();
+                        long secLegacyQueriesDropped = buf.readVarLong();
                         int n = Math.min(buf.readVarInt(), MAX_TOP_MODS);
                         List<ModEntry> mods = new ArrayList<>(n);
                         for (int i = 0; i < n; i++) {
@@ -194,6 +199,8 @@ public record StatsSnapshotPayload(
                                 secAnomalyDisconnects,
                                 secWritesDropped,
                                 secWatermarkBreaches,
+                                secStatusRequestsDropped,
+                                secLegacyQueriesDropped,
                                 mods);
                     }
             );
@@ -252,6 +259,8 @@ public record StatsSnapshotPayload(
                 sec.getAnomalyDisconnects(),
                 sec.getWritesDropped(),
                 sec.getWatermarkBreaches(),
+                sec.getStatusRequestsDropped(),
+                sec.getLegacyQueriesDropped(),
                 buildTopMods(s)
         );
     }
@@ -267,7 +276,9 @@ public record StatsSnapshotPayload(
                 + secAnomalyEvents
                 + secAnomalyDisconnects
                 + secWritesDropped
-                + secWatermarkBreaches;
+                + secWatermarkBreaches
+                + secStatusRequestsDropped
+                + secLegacyQueriesDropped;
     }
 
     private static List<ModEntry> buildTopMods(NetworkTrafficStats s) {
@@ -327,4 +338,3 @@ public record StatsSnapshotPayload(
         return base == 0 ? 0.0 : 100.0 * coalesceDroppedPackets / (double) base;
     }
 }
-

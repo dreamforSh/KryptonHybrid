@@ -4,16 +4,19 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.xinian.KryptonHybrid.client.overlay.KryptonHudOverlay;
 import com.xinian.KryptonHybrid.client.screen.KryptonStatsScreen;
 import com.xinian.KryptonHybrid.KryptonHybrid;
+import com.xinian.KryptonHybrid.shared.network.payload.StatsRequestPayload;
 import com.xinian.KryptonHybrid.shared.network.payload.StatsSnapshotPayload;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 /**
@@ -52,6 +55,8 @@ public final class KryptonStatsClientController {
     private static long lastRoundTripMs;
     private static long snapshotRequestCount;
     private static long snapshotReceiveCount;
+    /** Set when the player asked for the dashboard before any snapshot arrived. */
+    private static boolean pendingOpen;
 
     private KryptonStatsClientController() {}
 
@@ -59,6 +64,20 @@ public final class KryptonStatsClientController {
         modEventBus.addListener(KryptonStatsClientController::onRegisterKeyMappings);
         modEventBus.addListener(KryptonStatsClientController::onRegisterGuiLayers);
         NeoForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientTick);
+        NeoForge.EVENT_BUS.addListener(KryptonStatsClientController::onClientLoggedOut);
+    }
+
+    /** Stats belong to the server we left; never show them for the next one. */
+    private static void onClientLoggedOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        latestSnapshot = null;
+        latestSnapshotReceivedAtMs = 0L;
+        lastRequestAtMs = 0L;
+        lastRequestSentAtMs = 0L;
+        lastRoundTripMs = 0L;
+        snapshotRequestCount = 0L;
+        snapshotReceiveCount = 0L;
+        pendingOpen = false;
+        RemoteServerConfig.clear();
     }
 
     private static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
@@ -98,15 +117,15 @@ public final class KryptonStatsClientController {
             lastRoundTripMs = latestSnapshotReceivedAtMs - lastRequestSentAtMs;
         }
 
+        // Snapshots never open the dashboard by themselves (that is what
+        // OpenDashboardPayload is for), except for a request made before any arrived.
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.screen instanceof KryptonStatsScreen screen) {
             screen.updateSnapshot(payload);
-        } else if (!KryptonHudOverlay.isVisible()) {
-            // Preserve legacy behaviour: server-pushed snapshot pops the dashboard
-            // open. When the HUD is on it auto-refreshes every 2s; suppress
-            // auto-open so the GUI does not steal focus.
+        } else if (pendingOpen && minecraft.screen == null) {
             open(payload);
         }
+        pendingOpen = false;
     }
 
     public static KeyMapping openStatsKey() { return OPEN_STATS_KEY; }
@@ -126,16 +145,17 @@ public final class KryptonStatsClientController {
         Minecraft minecraft = Minecraft.getInstance();
         if (latestSnapshot != null) {
             open(latestSnapshot);
-        }
-        requestFreshSnapshot();
-        if (latestSnapshot == null) {
+        } else {
+            pendingOpen = true;
             minecraft.gui.setOverlayMessage(Component.translatable("gui.krypton_hybrid.hint.requesting"), false);
         }
+        requestFreshSnapshot();
     }
 
     public static void requestFreshSnapshot() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null) return;
+        // Servers without Krypton Hybrid (or an older build) do not take the request.
+        if (minecraft.player == null || !minecraft.player.connection.hasChannel(StatsRequestPayload.TYPE)) return;
 
         long now = System.currentTimeMillis();
         if (now - lastRequestAtMs < SNAPSHOT_REQUEST_COOLDOWN_MS) return;
@@ -143,7 +163,7 @@ public final class KryptonStatsClientController {
         lastRequestAtMs = now;
         lastRequestSentAtMs = now;
         snapshotRequestCount++;
-        minecraft.player.connection.sendUnsignedCommand("krypton stats gui");
+        PacketDistributor.sendToServer(StatsRequestPayload.INSTANCE);
     }
 
     public static void open(StatsSnapshotPayload payload) {

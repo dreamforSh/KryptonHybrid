@@ -201,6 +201,6 @@
   "hud.krypton_hybrid.top_mod": "▶ %1$s",
   "key.krypton_hybrid.open_stats": "打开 Krypton 统计仪表盘",
   "key.krypton_hybrid.toggle_hud": "切换 Krypton HUD",
-  "key.categories.krypton_hybrid": "Krypton Hybrid"
+  "key.categories.krypton_hybrid": "Krypton Hybrid",
+  "command.krypton_hybrid.stats.cache": "§7广播缓存: 序列化命中 §a%1$s%%§7 (§f%2$s§7 次) | 压缩命中 §a%3$s%%§7 (§f%4$s§7 次)"
 }
-

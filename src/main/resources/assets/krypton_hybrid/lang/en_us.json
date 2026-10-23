@@ -201,5 +201,6 @@
   "hud.krypton_hybrid.top_mod": "▶ %1$s",
   "key.krypton_hybrid.open_stats": "Open Krypton Stats Dashboard",
   "key.krypton_hybrid.toggle_hud": "Toggle Krypton HUD",
-  "key.categories.krypton_hybrid": "Krypton Hybrid"
+  "key.categories.krypton_hybrid": "Krypton Hybrid",
+  "command.krypton_hybrid.stats.cache": "§7Broadcast cache: serialize §a%1$s%%§7 hit (§f%2$s§7) | compressed §a%3$s%%§7 hit (§f%4$s§7)"
 }
