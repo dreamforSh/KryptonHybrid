@@ -189,7 +189,7 @@ The dashboard reports **flush savings** (share of flushes avoided, `1 − flushe
 /krypton security status     – security metrics snapshot (rate limits, validation, anomalies, etc.)
 ```
 
-Requires operator permission level 2.
+Requires operator permission level 2. Editing the server's config from the in-game config screen requires level 4 and a dedicated server; options naming files or directories, and sample capture, are read-only there.
 
 ---
 
