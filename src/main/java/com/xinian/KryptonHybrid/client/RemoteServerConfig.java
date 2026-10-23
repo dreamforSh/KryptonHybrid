@@ -24,7 +24,7 @@ import java.util.Set;
  */
 public final class RemoteServerConfig {
     /** Must match the server's {@code ServerConfigSync.PERMISSION_LEVEL}. */
-    public static final int PERMISSION_LEVEL = 2;
+    public static final int PERMISSION_LEVEL = 4;
 
     private static final Map<String, Object> VALUES = new HashMap<>();
     private static final Set<String> SECRETS_SET = new HashSet<>();

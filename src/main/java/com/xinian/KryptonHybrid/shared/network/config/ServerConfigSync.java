@@ -19,23 +19,33 @@ import java.util.Objects;
  * Server side of remote config editing: lets operators read and change this server's
  * {@code krypton_hybrid-common.toml} from the in-game config screen (server thread).
  *
- * <p>Every request is checked against {@link #PERMISSION_LEVEL}. Accepted changes
+ * <p>Only on a dedicated server (a LAN world's host edits the config locally, and with
+ * cheats on every guest has level 4), and every request is checked against
+ * {@link #PERMISSION_LEVEL}. Options naming files or directories, and sample capture
+ * (which writes them), can only be read remotely: they decide what the server reads
+ * and writes on its disk. Accepted changes
  * are applied to the live config, re-baked, saved to disk and logged with the
  * operator's name. Secret values are write-only: they are never sent to clients or
  * written to the log.</p>
  */
 public final class ServerConfigSync {
-    /** Same level as the {@code /krypton} commands. */
-    public static final int PERMISSION_LEVEL = 2;
+    /** Server owners: the config controls threads, memory and files of the server. */
+    public static final int PERMISSION_LEVEL = 4;
 
     public static final String ERROR_NO_PERMISSION = "no_permission";
     public static final String ERROR_UNKNOWN_KEY = "unknown_key";
     public static final String ERROR_INVALID_VALUE = "invalid_value";
+    public static final String ERROR_READ_ONLY = "read_only";
 
     private ServerConfigSync() {}
 
     public static boolean mayEdit(ServerPlayer player) {
-        return player.hasPermissions(PERMISSION_LEVEL);
+        return player.server.isDedicatedServer() && player.hasPermissions(PERMISSION_LEVEL);
+    }
+
+    /** Options that can be read but not changed remotely (files, directories, sample capture). */
+    public static boolean isRemoteReadOnly(String path) {
+        return path.endsWith("_path") || path.endsWith("_dir") || path.endsWith("dict_training_capture_enabled");
     }
 
     /** Snapshot for {@code player}: the full config for operators, only the error otherwise. */
@@ -82,6 +92,10 @@ public final class ServerConfigSync {
             if (!(specEntry instanceof ForgeConfigSpec.ValueSpec valueSpec)
                     || !(valueEntry instanceof ForgeConfigSpec.ConfigValue<?> configValue)) {
                 error = error == null ? ERROR_UNKNOWN_KEY : error;
+                continue;
+            }
+            if (isRemoteReadOnly(change.path())) {
+                error = error == null ? ERROR_READ_ONLY : error;
                 continue;
             }
             Object parsed = ConfigValueCodec.parse(valueSpec.getDefault(), change.value());

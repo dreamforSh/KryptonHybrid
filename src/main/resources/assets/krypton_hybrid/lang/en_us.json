@@ -185,10 +185,10 @@
   "gui.krypton_hybrid.config.source.common": "Network",
   "gui.krypton_hybrid.config.source.common.desc": "Compression, security and network optimizations (krypton_hybrid-common.toml). Edited here they only affect this machine: singleplayer, a LAN host and this client.",
   "gui.krypton_hybrid.config.source.server": "Server",
-  "gui.krypton_hybrid.config.source.server.desc": "Network config of the server you are connected to. Shown to operators (permission level 2); the server checks the permission again, applies the change at once, saves it and logs who changed what.",
+  "gui.krypton_hybrid.config.source.server.desc": "Network config of the dedicated server you are connected to. Shown to server owners (permission level 4); the server checks the permission again, applies the change at once, saves it and logs who changed what. File and directory options can only be changed in the server's config file.",
   "gui.krypton_hybrid.config.search": "Search settings",
   "gui.krypton_hybrid.config.note.client": "Changes apply at once and are saved to krypton_hybrid-client.toml on close",
-  "gui.krypton_hybrid.config.note.common": "Affects this machine only; operators can edit a dedicated server in the Server tab",
+  "gui.krypton_hybrid.config.note.common": "Affects this machine only; server owners can edit a dedicated server in the Server tab",
   "gui.krypton_hybrid.config.note.server": "Changes are applied and saved by the server right away",
   "gui.krypton_hybrid.config.server.loading": "Loading the server config…",
   "gui.krypton_hybrid.config.server.error.no_permission": "You are no longer allowed to edit this server's config",
@@ -366,5 +366,6 @@
   "gui.krypton_hybrid.dash.meter.flush": "Flushes saved",
   "gui.krypton_hybrid.dash.meter.flush.desc": "Share of network flushes avoided by holding a tick's packets and flushing each player once, compared with flushing every packet on its own. Higher is better.",
   "command.krypton_hybrid.stats.cache": "§7Broadcast cache: serialize §a%1$s%%§7 hit (§f%2$s§7) | compressed §a%3$s%%§7 hit (§f%4$s§7)",
-  "config.krypton_hybrid.security.packet_size.read_limits_enabled.desc": "Hard limits on strings, byte arrays, collections and maps in packets the server receives (not what clients read from the server). Can reject large mod payloads sent by clients. Off by default."
+  "config.krypton_hybrid.security.packet_size.read_limits_enabled.desc": "Hard limits on strings, byte arrays, collections and maps in packets the server receives (not what clients read from the server). Can reject large mod payloads sent by clients. Off by default.",
+  "gui.krypton_hybrid.config.server.error.read_only": "File and directory options and sample capture can only be changed in the server's config file"
 }

@@ -42,14 +42,20 @@ public class NettyResourceGuard extends ChannelDuplexHandler {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        if (KryptonConfig.securityEnabled) {
-            // Apply write watermarks
-            int low = KryptonConfig.securityWriteWatermarkLow;
-            int high = KryptonConfig.securityWriteWatermarkHigh;
-            ctx.channel().config().setWriteBufferWaterMark(
-                    new WriteBufferWaterMark(low, high));
+        try {
+            if (KryptonConfig.securityEnabled) {
+                // Apply write watermarks (low > high would make Netty throw; the two
+                // fields are not updated together when the config is reloaded)
+                int high = KryptonConfig.securityWriteWatermarkHigh;
+                int low = Math.min(KryptonConfig.securityWriteWatermarkLow, high);
+                ctx.channel().config().setWriteBufferWaterMark(
+                        new WriteBufferWaterMark(low, high));
+            }
+        } finally {
+            // Vanilla's Connection sets up its channel here; skipping it leaves a
+            // connection that is never removed.
+            super.channelActive(ctx);
         }
-        super.channelActive(ctx);
     }
 
     @Override

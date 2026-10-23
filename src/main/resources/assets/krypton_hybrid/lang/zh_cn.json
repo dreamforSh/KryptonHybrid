@@ -185,10 +185,10 @@
   "gui.krypton_hybrid.config.source.common": "网络",
   "gui.krypton_hybrid.config.source.common.desc": "压缩、安全防护和各项网络优化（krypton_hybrid-common.toml）。在这里修改只影响本机：单人游戏、局域网主机和本客户端。",
   "gui.krypton_hybrid.config.source.server": "服务器",
-  "gui.krypton_hybrid.config.source.server.desc": "当前所连服务器的网络配置。仅对 OP（权限等级 2）显示；服务器会再次校验权限，修改立即生效并保存，同时记录修改人和改动内容。",
+  "gui.krypton_hybrid.config.source.server.desc": "当前所连专用服务器的网络配置。仅对服主（权限等级 4）显示；服务器会再次校验权限，修改立即生效并保存，同时记录修改人和改动内容。文件、目录类选项只能在服务器的配置文件里修改。",
   "gui.krypton_hybrid.config.search": "搜索配置项",
   "gui.krypton_hybrid.config.note.client": "更改立即生效，关闭时写入 krypton_hybrid-client.toml",
-  "gui.krypton_hybrid.config.note.common": "只作用于本机；OP 可在「服务器」页修改专用服务器的配置",
+  "gui.krypton_hybrid.config.note.common": "只作用于本机；服主可在「服务器」页修改专用服务器的配置",
   "gui.krypton_hybrid.config.note.server": "更改由服务器立即应用并保存",
   "gui.krypton_hybrid.config.server.loading": "正在读取服务器配置…",
   "gui.krypton_hybrid.config.server.error.no_permission": "你已没有修改此服务器配置的权限",
@@ -430,5 +430,6 @@
   "gui.krypton_hybrid.dash.strip.flush": "每次刷新 %1$s 包",
   "gui.krypton_hybrid.dash.meter.flush": "刷新节省率",
   "gui.krypton_hybrid.dash.meter.flush.desc": "一个 tick 内先缓存所有包、每个玩家只刷新一次，相比逐包刷新省掉的刷新次数比例。越高越好。",
-  "command.krypton_hybrid.stats.cache": "§7广播缓存: 序列化命中 §a%1$s%%§7 (§f%2$s§7 次) | 压缩命中 §a%3$s%%§7 (§f%4$s§7 次)"
+  "command.krypton_hybrid.stats.cache": "§7广播缓存: 序列化命中 §a%1$s%%§7 (§f%2$s§7 次) | 压缩命中 §a%3$s%%§7 (§f%4$s§7 次)",
+  "gui.krypton_hybrid.config.server.error.read_only": "文件、目录类选项和样本采集只能在服务器的配置文件里修改"
 }
