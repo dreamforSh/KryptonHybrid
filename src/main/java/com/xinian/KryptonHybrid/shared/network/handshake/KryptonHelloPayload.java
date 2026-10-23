@@ -2,6 +2,7 @@ package com.xinian.KryptonHybrid.shared.network.handshake;
 
 import io.netty.buffer.ByteBuf;
 import com.xinian.KryptonHybrid.shared.KryptonConfig;
+import net.minecraft.network.VarInt;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -16,23 +17,28 @@ public record KryptonHelloPayload(int featureFlags) implements CustomPacketPaylo
     public static final int FEATURE_CHUNK_DATA = 1;
     public static final int FEATURE_LIGHT_DATA = 1 << 1;
     public static final int FEATURE_BLOCK_ENTITY_DELTA = 1 << 2;
+    /** Chunk data with byte-aligned block data ({@code ChunkDataCodec#ALIGNED_BLOCKS_MARKER}). */
+    public static final int FEATURE_CHUNK_ALIGNED_BLOCKS = 1 << 3;
+    /** Chunk data without heightmaps; the client computes them ({@code ChunkDataCodec#computeHeightmaps}). */
+    public static final int FEATURE_CHUNK_CLIENT_HEIGHTMAPS = 1 << 4;
 
+    /** Flags are a VarInt; older builds sent one byte, which reads the same for flags below 0x80. */
     public static final StreamCodec<ByteBuf, KryptonHelloPayload> STREAM_CODEC = new StreamCodec<>() {
         @Override
         public KryptonHelloPayload decode(ByteBuf buf) {
-            return new KryptonHelloPayload(buf.readUnsignedByte());
+            return new KryptonHelloPayload(VarInt.read(buf));
         }
 
         @Override
         public void encode(ByteBuf buf, KryptonHelloPayload payload) {
-            buf.writeByte(payload.featureFlags() & 0xFF);
+            VarInt.write(buf, payload.featureFlags());
         }
     };
 
     public static KryptonHelloPayload current() {
         int flags = 0;
         if (KryptonConfig.chunkOptEnabled) {
-            flags |= FEATURE_CHUNK_DATA;
+            flags |= FEATURE_CHUNK_DATA | FEATURE_CHUNK_ALIGNED_BLOCKS | FEATURE_CHUNK_CLIENT_HEIGHTMAPS;
         }
         if (KryptonConfig.lightOptEnabled) {
             flags |= FEATURE_LIGHT_DATA;
@@ -58,6 +64,14 @@ public record KryptonHelloPayload(int featureFlags) implements CustomPacketPaylo
 
     public boolean supportsBlockEntityDelta() {
         return (this.featureFlags & FEATURE_BLOCK_ENTITY_DELTA) != 0;
+    }
+
+    public boolean supportsChunkAlignedBlocks() {
+        return (this.featureFlags & FEATURE_CHUNK_ALIGNED_BLOCKS) != 0;
+    }
+
+    public boolean supportsChunkClientHeightmaps() {
+        return (this.featureFlags & FEATURE_CHUNK_CLIENT_HEIGHTMAPS) != 0;
     }
 }
 

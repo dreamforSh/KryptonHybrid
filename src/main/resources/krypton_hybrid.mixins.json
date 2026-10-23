@@ -13,6 +13,7 @@
     "network.avoidwork.ChunkMapTrackedEntityInvoker",
     "network.blockentity.ChunkHolderBlockEntityMixin",
     "network.blockentity.ServerGamePacketListenerDeltaMixin",
+    "network.blockentity.PlayerChunkSenderBlockEntityMixin",
     "network.chunk.ChunkDataOptMixin",
     "network.chunk.ChunkLightCompressMixin",
     "network.chunk.ChunkMapDccMixin",

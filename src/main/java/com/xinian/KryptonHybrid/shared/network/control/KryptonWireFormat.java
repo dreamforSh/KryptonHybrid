@@ -19,6 +19,14 @@ public final class KryptonWireFormat {
         return canWriteCurrentFeature(KryptonHelloPayload.FEATURE_CHUNK_DATA);
     }
 
+    public static boolean canWriteCurrentAlignedChunkBlocks() {
+        return canWriteCurrentFeature(KryptonHelloPayload.FEATURE_CHUNK_ALIGNED_BLOCKS);
+    }
+
+    public static boolean canWriteCurrentClientHeightmaps() {
+        return canWriteCurrentFeature(KryptonHelloPayload.FEATURE_CHUNK_CLIENT_HEIGHTMAPS);
+    }
+
     public static boolean canWriteCurrentLightData() {
         return canWriteCurrentFeature(KryptonHelloPayload.FEATURE_LIGHT_DATA);
     }
